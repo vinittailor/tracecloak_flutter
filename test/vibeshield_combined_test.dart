@@ -197,6 +197,82 @@ void main() {
 
       expect(safeMap['auth'].toString().contains('sk_live'), isFalse);
     });
+
+    test('11. Stack trace and error sanitization (no leaked variables in crashes)', () {
+      final captured = <String>[];
+      VibeShield.customPrinter = (msg) => captured.add(msg);
+
+      final fakeStackTrace = StackTrace.fromString(
+        '#0 Database.connect (package:app/db.dart:42)\n'
+        '#1 ApiClient.get (https://api.stripe.com/v1/charges?key=sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890)\n'
+        '#2 main (package:app/main.dart:10)',
+      );
+
+      final sanitizedTrace = VibeShield.sanitizeStackTrace(fakeStackTrace);
+      expect(sanitizedTrace.toString().contains('sk_live_****7890'), isTrue);
+      expect(sanitizedTrace.toString().contains('51Hc29KJ8f3ks9fQ2ABCDEF12'), isFalse);
+
+      VibeShield.error(
+        'Fatal failure in auth service',
+        error: 'Failed with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a',
+        stackTrace: fakeStackTrace,
+      );
+
+      expect(captured.length, equals(1));
+      expect(captured[0].contains('ghp_****8B4a'), isTrue);
+      expect(captured[0].contains('sk_live_****7890'), isTrue);
+      expect(captured[0].contains('16C7e42F292c6912E7710c838347Ae'), isFalse);
+
+      VibeShield.customPrinter = null;
+    });
+
+    test('12. wrapDebugPrint sanitizes framework-level logs', () {
+      final captured = <String>[];
+      final wrapped = VibeShield.wrapDebugPrint((msg, {wrapWidth}) => captured.add(msg!));
+
+      wrapped('Flutter framework internal log: AWS secret AKIAIOSFODNN7EXAMPLE');
+      expect(captured.length, equals(1));
+      expect(captured[0].contains('AKIA****MPLE'), isTrue);
+      expect(captured[0].contains('IOSFODNN7EXA'), isFalse);
+    });
+
+    test('13. Dio Interceptor sanitizes URI query parameters and error dumps', () {
+      final captured = <String>[];
+      VibeShield.customPrinter = (msg) => captured.add(msg);
+
+      final interceptor = VibeShield.dioInterceptor();
+      final options = RequestOptions(
+        path: 'https://api.example.com/checkout?apiKey=sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890',
+        method: 'GET',
+      );
+
+      final handler = _TestRequestHandler();
+      interceptor.onRequest(options, handler);
+
+      expect(captured.any((c) => c.contains('sk_live_****7890')), isTrue);
+      expect(captured.any((c) => c.contains('51Hc29KJ8f3ks9fQ2ABCDEF12')), isFalse);
+
+      VibeShield.customPrinter = null;
+    });
+
+    test('14. VibeShield.run with onError sanitizes uncaught exception & stack trace', () {
+      Object? receivedError;
+      StackTrace? receivedStack;
+
+      VibeShield.run(
+        () {
+          throw Exception('Network auth failed with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a');
+        },
+        onError: (err, stack) {
+          receivedError = err;
+          receivedStack = stack;
+        },
+      );
+
+      expect(receivedError.toString().contains('ghp_****8B4a'), isTrue);
+      expect(receivedError.toString().contains('16C7e42F292c6912E7710c838347Ae'), isFalse);
+      expect(receivedStack, isNotNull);
+    });
   });
 }
 

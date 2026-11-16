@@ -45,6 +45,8 @@ Every Flutter developer accidentally prints credentials during debugging: Stripe
 - [Masking Modes](#masking-modes)
 - [Production Release Bypass](#production-release-bypass)
 - [Dio Network Interceptor](#dio-network-interceptor)
+- [Error & Stack Trace Sanitization](#error-crash--stack-trace-sanitization)
+- [High-Frequency Console Performance](#high-frequency-console-performance)
 - [AI Leak Protection](#ai-leak-protection)
   - [1. SecureKey AI-Proof Wrapper](#1-securekey-ai-proof-wrapper)
   - [2. AI Prompt Sanitization](#2-ai-prompt-sanitization)
@@ -176,6 +178,62 @@ Headers: {Authorization: Bearer sk_live_****7890}
 Body: {"clientSecret": "sk_live_****7890", "amount": 2000}
 ```
 *Live backend servers still receive the genuine `Authorization: Bearer sk_live_51Hc29...` token, so payments and authentication never fail!*
+
+---
+
+## Error, Crash & Stack Trace Sanitization
+
+When an app throws an exception or an HTTP request fails, stack traces frequently dump variable values, credentials, or sensitive URL query parameters (`https://api.example.com?token=...`) directly to the console. VibeShield neutralizes this across three layers:
+
+### 1. Zone Uncaught Error Interception
+Pass an optional `onError` callback to `VibeShield.run()` to sanitize unhandled errors and stack traces before reporting:
+
+```dart
+void main() {
+  VibeShield.run(
+    () => runApp(const MyApp()),
+    onError: (error, stackTrace) {
+      // Both error and stackTrace are already sanitized!
+      FirebaseCrashlytics.instance.recordError(error, stackTrace);
+    },
+  );
+}
+```
+
+### 2. Manual Error & Stack Trace Sanitization
+Sanitize caught errors or stack traces explicitly:
+
+```dart
+try {
+  await authService.login();
+} catch (e, stack) {
+  // Returns sanitized (String error, StackTrace? stackTrace)
+  final (safeErr, safeStack) = VibeShield.sanitizeError(e, stack);
+  VibeShield.error('Authentication failed: $safeErr', stackTrace: safeStack);
+}
+```
+
+### 3. Flutter Framework Logs & `debugPrint` Hook
+Certain packages or Flutter framework internals bypass standard `print()` by calling `debugPrint`. Hook it with one line in `main()`:
+
+```dart
+void main() {
+  // Intercepts Flutter's debugPrint callback with automatic secret redaction:
+  debugPrint = VibeShield.wrapDebugPrint(debugPrint);
+
+  VibeShield.run(() => runApp(const MyApp()));
+}
+```
+
+---
+
+## High-Frequency Console Performance
+
+Console output can reach high volumes rapidly during continuous network polling or rapid state transitions (e.g. Bloc / Riverpod). VibeShield is engineered with strict performance safeguards:
+
+- **Zero In-Print JSON Decoding:** Incoming log lines are treated strictly as strings and scanned via fast regex replacement, eliminating costly recursive `jsonDecode()` tree-walks inside the active print loop.
+- **Short-String Fast-Path:** Messages under 16 characters automatically bypass regex and Shannon entropy passes unless custom exact matches are configured.
+- **Pre-Filtered Entropy:** Shannon entropy calculations only run on candidate token substrings ($\ge 16$ characters) matching credential character sets, preventing CPU spikes.
 
 ---
 

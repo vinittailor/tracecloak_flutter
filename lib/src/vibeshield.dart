@@ -137,12 +137,13 @@ class VibeShield {
   ///   enableInRelease: false, // Provably calls runApp directly in release APK/AAB!
   /// );
   /// ```
-  static R run<R>(
+  static R? run<R>(
     R Function() body, {
     legacy.MaskMode? mode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
     void Function(legacy.RedactionEvent event)? onRedactionEvent,
+    void Function(Object error, StackTrace stackTrace)? onError,
   }) {
     // In production release builds (APK/AAB), completely bypass VibeShield by default!
     if (!legacy.kDebugMode && !enableInRelease) {
@@ -153,19 +154,82 @@ class VibeShield {
     if (exactSecrets != null) addExactMatches(exactSecrets);
     if (onRedactionEvent != null) onRedacted = onRedactionEvent;
 
+    final zoneSpec = ZoneSpecification(
+      print: (self, parent, zone, line) {
+        final sanitized = redact(line);
+        if (customPrinter != null) {
+          customPrinter!(sanitized);
+        } else {
+          parent.print(zone, sanitized);
+        }
+      },
+      handleUncaughtError: (self, parent, zone, error, stackTrace) {
+        final sanitizedError = redact(error.toString());
+        final sanitizedStack = sanitizeStackTrace(stackTrace);
+        if (onError != null) {
+          onError(sanitizedError, sanitizedStack);
+        } else {
+          parent.handleUncaughtError(zone, sanitizedError, sanitizedStack);
+        }
+      },
+    );
+
+    if (onError != null) {
+      return runZonedGuarded<R>(
+        body,
+        (error, stackTrace) {
+          final sanitizedError = redact(error.toString());
+          final sanitizedStack = sanitizeStackTrace(stackTrace);
+          onError(sanitizedError, sanitizedStack);
+        },
+        zoneSpecification: zoneSpec,
+      );
+    }
+
     return runZoned(
       body,
-      zoneSpecification: ZoneSpecification(
-        print: (self, parent, zone, line) {
-          final sanitized = redact(line);
-          if (customPrinter != null) {
-            customPrinter!(sanitized);
-          } else {
-            parent.print(zone, sanitized);
-          }
-        },
-      ),
+      zoneSpecification: zoneSpec,
     );
+  }
+
+  /// Intercepts Flutter's `debugPrint` callback to ensure framework logs are masked.
+  ///
+  /// Usage in Flutter `main()`:
+  /// ```dart
+  /// debugPrint = VibeShield.wrapDebugPrint(debugPrint);
+  /// ```
+  static void Function(String? message, {int? wrapWidth}) wrapDebugPrint([
+    void Function(String? message, {int? wrapWidth})? original,
+  ]) {
+    return (String? message, {int? wrapWidth}) {
+      if (message == null) return;
+      final sanitized = redact(message);
+      if (original != null) {
+        original(sanitized, wrapWidth: wrapWidth);
+      } else {
+        legacy.dartPrint(sanitized);
+      }
+    };
+  }
+
+  /// Sanitizes a [StackTrace], ensuring credentials, tokens in query parameters,
+  /// or dumped variable strings in stack traces do not leak to the console.
+  static StackTrace sanitizeStackTrace(StackTrace stackTrace, {legacy.MaskMode? overrideMode}) {
+    final sanitized = redact(stackTrace.toString(), overrideMode: overrideMode);
+    return StackTrace.fromString(sanitized);
+  }
+
+  /// Sanitizes an error/exception and its optional stack trace.
+  static (String error, StackTrace? stackTrace) sanitizeError(
+    Object error, [
+    StackTrace? stackTrace,
+    legacy.MaskMode? overrideMode,
+  ]) {
+    final sanitizedError = redact(error.toString(), overrideMode: overrideMode);
+    final sanitizedStack = stackTrace != null
+        ? sanitizeStackTrace(stackTrace, overrideMode: overrideMode)
+        : null;
+    return (sanitizedError, sanitizedStack);
   }
 
   // --------------------------------------------------------------------------
@@ -224,9 +288,14 @@ class VibeShield {
   }
 
   /// Redacts sensitive credentials across any string message.
+  /// Performance optimized: short messages (< 16 chars) skip regex/entropy passes
+  /// unless exact matches are configured.
   static String redact(String message, {legacy.MaskMode? overrideMode}) {
     final activeMode = overrideMode ?? mode;
     if (activeMode == legacy.MaskMode.off || message.isEmpty) return message;
+
+    // Fast-path: short strings (< 16 chars) cannot match standard credential patterns
+    if (message.length < 16 && _exactMatches.isEmpty) return message;
 
     var sanitized = message;
 
@@ -384,12 +453,13 @@ class VibeShield {
       }
 
       if (error != null) {
-        final sanitizedError = sanitize(error.toString());
+        final sanitizedError = redact(error.toString());
         buffer.write(' | error: $sanitizedError');
       }
 
       if (stackTrace != null) {
-        buffer.write('\n$stackTrace');
+        final sanitizedStack = sanitizeStackTrace(stackTrace);
+        buffer.write('\n$sanitizedStack');
       }
 
       final output = buffer.toString();

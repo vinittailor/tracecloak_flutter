@@ -56,6 +56,7 @@ class VibeShieldDioInterceptor extends Interceptor {
     if (logRequests) {
       // Sanitize a copy of headers, queries, and payload for logging
       // without corrupting the real network request sent over the wire!
+      final safeUri = VibeShield.redact(options.uri.toString(), overrideMode: overrideMode);
       final safeHeaders = VibeShield.sanitizeHeaders(options.headers, overrideMode: overrideMode);
       final safeQuery = options.queryParameters.isNotEmpty
           ? VibeShield.sanitize(options.queryParameters, overrideMode: overrideMode)
@@ -65,7 +66,7 @@ class VibeShieldDioInterceptor extends Interceptor {
           : null;
 
       VibeShield.print(
-        '--> ${options.method} ${options.uri}',
+        '--> ${options.method} $safeUri',
         tag: 'DIO-REQ',
         metadata: {
           'headers': safeHeaders,
@@ -86,12 +87,13 @@ class VibeShieldDioInterceptor extends Interceptor {
     }
 
     if (logResponses) {
+      final safeUri = VibeShield.redact(response.requestOptions.uri.toString(), overrideMode: overrideMode);
       final safeData = response.data != null
           ? VibeShield.sanitize(response.data, overrideMode: overrideMode)
           : null;
 
       VibeShield.print(
-        '<-- ${response.statusCode} ${response.requestOptions.uri}',
+        '<-- ${response.statusCode} $safeUri',
         tag: 'DIO-RES',
         metadata: {
           'status': response.statusCode,
@@ -111,11 +113,24 @@ class VibeShieldDioInterceptor extends Interceptor {
     }
 
     if (logErrors) {
+      final safeUri = VibeShield.redact(err.requestOptions.uri.toString(), overrideMode: overrideMode);
+      final safeMessage = err.message != null
+          ? VibeShield.redact(err.message!, overrideMode: overrideMode)
+          : null;
+      final safeResponse = err.response?.data != null
+          ? VibeShield.sanitize(err.response!.data, overrideMode: overrideMode)
+          : null;
+
       VibeShield.error(
-        '<-- ERROR ${err.requestOptions.uri}: ${err.message}',
+        '<-- ERROR $safeUri${safeMessage != null ? ': $safeMessage' : ''}',
         tag: 'DIO-ERR',
-        error: err.error,
-        stackTrace: err.stackTrace,
+        metadata: {
+          'uri': safeUri,
+          if (err.response?.statusCode != null) 'status': err.response!.statusCode,
+          if (safeResponse != null) 'response': safeResponse,
+        },
+        error: err.error != null ? VibeShield.redact(err.error.toString(), overrideMode: overrideMode) : null,
+        stackTrace: VibeShield.sanitizeStackTrace(err.stackTrace, overrideMode: overrideMode),
       );
     }
 
