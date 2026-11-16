@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vinittailor/vibeshield_flutter/main/assets/VibeShield_logo.png" alt="VibeShield Banner" width="100%" />
+</p>
+
 # vibeshield_flutter
 
 [![Pub Version](https://img.shields.io/pub/v/vibeshield_flutter.svg)](https://pub.dev/packages/vibeshield_flutter)
