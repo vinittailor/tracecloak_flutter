@@ -1,5 +1,5 @@
 /// Unified VibeShield Flutter/Dart SDK combining:
-/// 1. Zero-code global zone & print interception (`VibeShield.install()`, `VibeShield.run()`)
+/// 1. Zero-code global zone & print interception (`VibeShield.run()`)
 /// 2. Native Dart extension methods (`secret.masked`, `text.redacted`, `secret.fullMasked`)
 /// 3. Structured fluent logging with auto-sanitized metadata (`VibeShield.info(...).data(...).send()`)
 /// 4. Network header scrubbing (`VibeShield.sanitizeHeaders(...)`)
@@ -11,52 +11,51 @@ import 'dart:async';
 import 'masker.dart';
 import 'rules.dart';
 import 'entropy.dart';
-import 'secure_log.dart' as legacy;
+import 'types.dart';
+import 'dio_interceptor.dart';
+import 'ai_shield.dart';
 
 export 'masker.dart';
 export 'rules.dart';
 export 'entropy.dart';
-export 'secure_log.dart' show MaskMode, LogLevel, RedactionEvent, kDebugMode;
+export 'types.dart';
 export 'dio_interceptor.dart';
 export 'ai_shield.dart';
-
-import 'dio_interceptor.dart';
-import 'ai_shield.dart';
 
 /// Backward-compatibility alias
 typedef SecureLog = VibeShield;
 
 class VibeShield {
-  static legacy.MaskMode mode = legacy.MaskMode.partial;
+  static MaskMode mode = MaskMode.partial;
   static final Set<String> _exactMatches = {};
   static final List<DartSecretRule> _customRules = [];
   static void Function(String message)? customPrinter;
   static bool _installed = false;
 
   /// Mode inspection getters
-  static bool get isOff => mode == legacy.MaskMode.off;
-  static bool get isPartial => mode == legacy.MaskMode.partial;
-  static bool get isFull => mode == legacy.MaskMode.full;
+  static bool get isOff => mode == MaskMode.off;
+  static bool get isPartial => mode == MaskMode.partial;
+  static bool get isFull => mode == MaskMode.full;
 
   /// Sets the active masking mode:
   /// - `MaskMode.off`: No redaction (raw secret).
   /// - `MaskMode.partial`: Half mask / preview (`sk_live_****9fQ2`).
   /// - `MaskMode.full`: Shape-preserving full mask (`aa_aaaa_00aa...`, 0% character overlap).
-  static void setMode(legacy.MaskMode newMode) {
+  static void setMode(MaskMode newMode) {
     mode = newMode;
   }
 
   /// Cycles through masking modes: off -> partial -> full -> off.
-  static legacy.MaskMode cycleMode() {
+  static MaskMode cycleMode() {
     switch (mode) {
-      case legacy.MaskMode.off:
-        mode = legacy.MaskMode.partial;
+      case MaskMode.off:
+        mode = MaskMode.partial;
         break;
-      case legacy.MaskMode.partial:
-        mode = legacy.MaskMode.full;
+      case MaskMode.partial:
+        mode = MaskMode.full;
         break;
-      case legacy.MaskMode.full:
-        mode = legacy.MaskMode.off;
+      case MaskMode.full:
+        mode = MaskMode.off;
         break;
     }
     return mode;
@@ -67,7 +66,7 @@ class VibeShield {
   /// Optionally override the masking mode specifically for Dio:
   /// `dio.interceptors.add(VibeShield.dioInterceptor(mode: MaskMode.full));`
   static VibeShieldDioInterceptor dioInterceptor({
-    legacy.MaskMode? mode,
+    MaskMode? mode,
     bool enableInRelease = false,
     bool logRequests = true,
     bool logResponses = true,
@@ -82,46 +81,39 @@ class VibeShield {
       );
 
   /// Non-custodial audit callback hook (Safe for Sentry, Crashlytics, Telemetry).
-  static void Function(legacy.RedactionEvent event)? onRedacted;
+  static void Function(RedactionEvent event)? onRedacted;
 
   // --------------------------------------------------------------------------
-  // 1. GLOBAL ZERO-CODE INTERCEPTION (Better Way #1)
+  // 1. GLOBAL ZERO-CODE INTERCEPTION (Zone & Print)
   // --------------------------------------------------------------------------
 
-  /// Globally installs VibeShield into the active Dart/Flutter environment.
-  /// Once installed, every standard `print(...)` in your app, third-party libraries,
-  /// and the framework is automatically intercepted and redacted before display.
+  /// Pre-configures global VibeShield settings (mode, exact secrets, audit listeners).
   ///
-  /// In release builds (APK/AAB), if [enableInRelease] is false (default),
-  /// installation is completely bypassed with zero overhead.
+  /// NOTE ON DART PRINT INTERCEPTION:
+  /// In the Dart runtime, top-level `print()` is a static function that delegates to
+  /// the active [Zone]. To intercept all standard `print()` statements across your
+  /// entire Flutter app and third-party libraries, use [VibeShield.run]:
+  /// ```dart
+  /// void main() => VibeShield.run(() => runApp(const MyApp()));
+  /// ```
   static void install({
-    legacy.MaskMode? initialMode,
+    MaskMode? initialMode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
-    void Function(legacy.RedactionEvent event)? onRedactionEvent,
+    void Function(RedactionEvent event)? onRedactionEvent,
   }) {
-    if (!legacy.kDebugMode && !enableInRelease) {
+    if (!kDebugMode && !enableInRelease) {
       return;
     }
 
     if (initialMode != null) mode = initialMode;
     if (exactSecrets != null) addExactMatches(exactSecrets);
     if (onRedactionEvent != null) onRedacted = onRedactionEvent;
-
-    if (!_installed) {
-      _installed = true;
-      // Redirect core print indirection to run redaction automatically
-      legacy.corePrint = (obj) {
-        final text = obj?.toString() ?? 'null';
-        final sanitized = redact(text);
-        if (customPrinter != null) {
-          customPrinter!(sanitized);
-        } else {
-          legacy.dartPrint(sanitized);
-        }
-      };
-    }
+    _installed = true;
   }
+
+  /// True if [install] or [run] has been called.
+  static bool get isInstalled => _installed;
 
   /// Runs an entire Flutter app or code block inside an isolated auto-redacting Dart Zone.
   ///
@@ -139,17 +131,18 @@ class VibeShield {
   /// ```
   static R? run<R>(
     R Function() body, {
-    legacy.MaskMode? mode,
+    MaskMode? mode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
-    void Function(legacy.RedactionEvent event)? onRedactionEvent,
+    void Function(RedactionEvent event)? onRedactionEvent,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
     // In production release builds (APK/AAB), completely bypass VibeShield by default!
-    if (!legacy.kDebugMode && !enableInRelease) {
+    if (!kDebugMode && !enableInRelease) {
       return body();
     }
 
+    _installed = true;
     if (mode != null) VibeShield.mode = mode;
     if (exactSecrets != null) addExactMatches(exactSecrets);
     if (onRedactionEvent != null) onRedacted = onRedactionEvent;
@@ -206,15 +199,17 @@ class VibeShield {
       final sanitized = redact(message);
       if (original != null) {
         original(sanitized, wrapWidth: wrapWidth);
+      } else if (customPrinter != null) {
+        customPrinter!(sanitized);
       } else {
-        legacy.dartPrint(sanitized);
+        Zone.root.print(sanitized);
       }
     };
   }
 
   /// Sanitizes a [StackTrace], ensuring credentials, tokens in query parameters,
   /// or dumped variable strings in stack traces do not leak to the console.
-  static StackTrace sanitizeStackTrace(StackTrace stackTrace, {legacy.MaskMode? overrideMode}) {
+  static StackTrace sanitizeStackTrace(StackTrace stackTrace, {MaskMode? overrideMode}) {
     final sanitized = redact(stackTrace.toString(), overrideMode: overrideMode);
     return StackTrace.fromString(sanitized);
   }
@@ -223,7 +218,7 @@ class VibeShield {
   static (String error, StackTrace? stackTrace) sanitizeError(
     Object error, [
     StackTrace? stackTrace,
-    legacy.MaskMode? overrideMode,
+    MaskMode? overrideMode,
   ]) {
     final sanitizedError = redact(error.toString(), overrideMode: overrideMode);
     final sanitizedStack = stackTrace != null
@@ -256,17 +251,17 @@ class VibeShield {
   }
 
   /// Convenience single-value masking helper.
-  static String mask(String secret, {legacy.MaskMode? overrideMode}) {
+  static String mask(String secret, {MaskMode? overrideMode}) {
     final activeMode = overrideMode ?? mode;
-    if (activeMode == legacy.MaskMode.off || secret.isEmpty) return secret;
-    if (activeMode == legacy.MaskMode.full) {
+    if (activeMode == MaskMode.off || secret.isEmpty) return secret;
+    if (activeMode == MaskMode.full) {
       return fullMask(secret);
     }
     return partialMask(secret);
   }
 
   /// Recursively sanitizes any dynamic object (Map, List, or primitive).
-  static dynamic sanitize(dynamic value, {legacy.MaskMode? overrideMode}) {
+  static dynamic sanitize(dynamic value, {MaskMode? overrideMode}) {
     if (value == null) return null;
     if (value is String) {
       return redact(value, overrideMode: overrideMode);
@@ -290,9 +285,9 @@ class VibeShield {
   /// Redacts sensitive credentials across any string message.
   /// Performance optimized: short messages (< 16 chars) skip regex/entropy passes
   /// unless exact matches are configured.
-  static String redact(String message, {legacy.MaskMode? overrideMode}) {
+  static String redact(String message, {MaskMode? overrideMode}) {
     final activeMode = overrideMode ?? mode;
-    if (activeMode == legacy.MaskMode.off || message.isEmpty) return message;
+    if (activeMode == MaskMode.off || message.isEmpty) return message;
 
     // Fast-path: short strings (< 16 chars) cannot match standard credential patterns
     if (message.length < 16 && _exactMatches.isEmpty) return message;
@@ -302,7 +297,7 @@ class VibeShield {
     // 1. Redact exact matches (.env, vault)
     for (final exact in _exactMatches) {
       if (sanitized.contains(exact)) {
-        final replacement = activeMode == legacy.MaskMode.full ? fullMask(exact) : partialMask(exact);
+        final replacement = activeMode == MaskMode.full ? fullMask(exact) : partialMask(exact);
         sanitized = sanitized.replaceAll(exact, replacement);
         _fireRedactedEvent('Exact Match', 'exact', replacement);
       }
@@ -313,7 +308,7 @@ class VibeShield {
     for (final rule in allRules) {
       sanitized = sanitized.replaceAllMapped(rule.regex, (match) {
         final raw = match.group(1) ?? match.group(0)!;
-        final replacement = activeMode == legacy.MaskMode.full
+        final replacement = activeMode == MaskMode.full
             ? fullMask(raw)
             : partialMask(raw, prefix: rule.prefix);
         _fireRedactedEvent(rule.name, rule.category, replacement);
@@ -326,7 +321,7 @@ class VibeShield {
     if (entropyMatches.isNotEmpty) {
       final sorted = List.of(entropyMatches)..sort((a, b) => b.start.compareTo(a.start));
       for (final em in sorted) {
-        final replacement = activeMode == legacy.MaskMode.full ? fullMask(em.token) : partialMask(em.token);
+        final replacement = activeMode == MaskMode.full ? fullMask(em.token) : partialMask(em.token);
         sanitized = sanitized.replaceRange(em.start, em.end, replacement);
         _fireRedactedEvent('High-Entropy Token', 'entropy', replacement);
       }
@@ -336,7 +331,7 @@ class VibeShield {
   }
 
   static void _fireRedactedEvent(String ruleName, String category, String maskedPreview) {
-    onRedacted?.call(legacy.RedactionEvent(
+    onRedacted?.call(RedactionEvent(
       ruleName: ruleName,
       category: category,
       maskedPreview: maskedPreview,
@@ -349,7 +344,7 @@ class VibeShield {
   /// Replaces all API keys, bearer tokens, passwords, and high-entropy strings with shape-preserving
   /// masks (0% character overlap), ensuring no real secret ever reaches OpenAI, Anthropic, Gemini, or any LLM server.
   static dynamic aiSafe(dynamic payload) {
-    return sanitize(payload, overrideMode: legacy.MaskMode.full);
+    return sanitize(payload, overrideMode: MaskMode.full);
   }
 
   /// Automatically creates and syncs `.cursorignore`, `.copilotignore`, `.claudeignore`, and `.aiexclude`
@@ -359,13 +354,13 @@ class VibeShield {
   }
 
   // --------------------------------------------------------------------------
-  // 3. NETWORK & HTTP SCRUBBING (Better Way #3)
+  // 3. NETWORK & HTTP SCRUBBING (Headers & Payloads)
   // --------------------------------------------------------------------------
 
   /// Sanitizes HTTP headers map (e.g. Authorization, X-Api-Key, Cookie, Bearer tokens).
   static Map<String, dynamic> sanitizeHeaders(
     Map<String, dynamic> headers, {
-    legacy.MaskMode? overrideMode,
+    MaskMode? overrideMode,
   }) {
     final result = <String, dynamic>{};
     for (final entry in headers.entries) {
@@ -384,11 +379,11 @@ class VibeShield {
   }
 
   // --------------------------------------------------------------------------
-  // 4. FLUENT STRUCTURED LOGGING (Better Way #4)
+  // 4. FLUENT STRUCTURED LOGGING
   // --------------------------------------------------------------------------
 
   /// Fluent log builder: `VibeShield.log('Checkout').tag('BILLING').data({...}).send()`
-  static VibeShieldLogBuilder log(String message, [legacy.LogLevel level = legacy.LogLevel.info]) =>
+  static VibeShieldLogBuilder log(String message, [LogLevel level = LogLevel.info]) =>
       VibeShieldLogBuilder(message, level);
 
   /// Direct structured methods for each log level
@@ -399,7 +394,7 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: legacy.LogLevel.debug);
+      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.debug);
 
   static void info(
     Object? message, {
@@ -408,7 +403,7 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: legacy.LogLevel.info);
+      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.info);
 
   static void warn(
     Object? message, {
@@ -417,7 +412,7 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: legacy.LogLevel.warn);
+      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.warn);
 
   static void error(
     Object? message, {
@@ -426,7 +421,7 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: legacy.LogLevel.error);
+      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.error);
 
   /// Direct structured print method.
   static void print(
@@ -435,9 +430,9 @@ class VibeShield {
     Object? error,
     StackTrace? stackTrace,
     String? tag,
-    legacy.LogLevel level = legacy.LogLevel.info,
+    LogLevel level = LogLevel.info,
   }) {
-    if (legacy.kDebugMode) {
+    if (kDebugMode) {
       final text = object?.toString() ?? 'null';
       final sanitizedText = redact(text);
       final sanitizedMetadata = metadata != null ? sanitize(metadata) as Map : null;
@@ -467,7 +462,7 @@ class VibeShield {
       if (customPrinter != null) {
         customPrinter!(output);
       } else {
-        legacy.dartPrint(output);
+        Zone.root.print(output);
       }
     }
   }
@@ -476,13 +471,13 @@ class VibeShield {
 /// Fluent builder for structured logs with metadata, error, and tags.
 class VibeShieldLogBuilder {
   final String _message;
-  final legacy.LogLevel _level;
+  final LogLevel _level;
   String? _tag;
   Map<String, dynamic>? _metadata;
   Object? _error;
   StackTrace? _stackTrace;
 
-  VibeShieldLogBuilder(this._message, [this._level = legacy.LogLevel.info]);
+  VibeShieldLogBuilder(this._message, [this._level = LogLevel.info]);
 
   VibeShieldLogBuilder tag(String tag) {
     _tag = tag;
@@ -513,7 +508,7 @@ class VibeShieldLogBuilder {
 }
 
 // --------------------------------------------------------------------------
-// 5. NATIVE DART STRING EXTENSIONS (Better Way #2)
+// 5. NATIVE DART STRING EXTENSIONS
 // --------------------------------------------------------------------------
 
 /// Idiomatic Dart string extension for effortless secret masking.
@@ -522,17 +517,17 @@ extension VibeShieldStringExtension on String {
   String get redacted => VibeShield.redact(this);
 
   /// Masks this string as a single secret in partial (half) mode (e.g. `sk_live_****9fQ2`).
-  String get masked => VibeShield.mask(this, overrideMode: legacy.MaskMode.partial);
+  String get masked => VibeShield.mask(this, overrideMode: MaskMode.partial);
 
   /// Half mask alias for partial mode.
-  String get halfMasked => VibeShield.mask(this, overrideMode: legacy.MaskMode.partial);
+  String get halfMasked => VibeShield.mask(this, overrideMode: MaskMode.partial);
 
   /// Masks this string in full shape-preserving mode (guaranteeing 0% character overlap).
-  String get fullMasked => VibeShield.mask(this, overrideMode: legacy.MaskMode.full);
+  String get fullMasked => VibeShield.mask(this, overrideMode: MaskMode.full);
 
   /// Masks this string using an explicit mode.
-  String maskWith(legacy.MaskMode mode) => VibeShield.mask(this, overrideMode: mode);
+  String maskWith(MaskMode mode) => VibeShield.mask(this, overrideMode: mode);
 
   /// Converts this string or prompt into an AI-safe prompt where all credentials are fully masked.
-  String get aiSafe => VibeShield.redact(this, overrideMode: legacy.MaskMode.full);
+  String get aiSafe => VibeShield.redact(this, overrideMode: MaskMode.full);
 }

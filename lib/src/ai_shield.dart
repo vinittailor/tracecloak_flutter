@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'vibeshield.dart';
-import 'secure_log.dart' as legacy;
 
 /// An AI-proof wrapper for sensitive credentials.
 ///
@@ -24,9 +23,9 @@ import 'secure_log.dart' as legacy;
 /// ```
 class SecureKey {
   final String _raw;
-  final legacy.MaskMode _maskMode;
+  final MaskMode _maskMode;
 
-  const SecureKey(this._raw, {legacy.MaskMode maskMode = legacy.MaskMode.partial})
+  const SecureKey(this._raw, {MaskMode maskMode = MaskMode.partial})
       : _maskMode = maskMode;
 
   /// Safe masked representation (AI tools and loggers only see the mask!).
