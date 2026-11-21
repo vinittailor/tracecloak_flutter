@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'log_output.dart';
 import 'vibeshield.dart';
 
 /// Plug-and-play Dio interceptor that automatically scrubs sensitive credentials
@@ -14,7 +15,7 @@ import 'vibeshield.dart';
 /// ```
 class VibeShieldDioInterceptor extends Interceptor {
   /// Explicit masking mode for this interceptor.
-  /// When null, defaults to the globally active [VibeShield.maskMode].
+  /// When null, defaults to the globally active [VibeShield.mode].
   final MaskMode? overrideMode;
 
   /// Whether to run this interceptor in release builds (`--release`).
@@ -45,95 +46,60 @@ class VibeShieldDioInterceptor extends Interceptor {
     this.logErrors = true,
   });
 
+  bool get _active => kDebugMode || enableInRelease;
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    // In production release builds, bypass completely if enableInRelease is false
-    if (!kDebugMode && !enableInRelease) {
-      handler.next(options);
-      return;
-    }
-
-    if (logRequests) {
-      // Sanitize a copy of headers, queries, and payload for logging
-      // without corrupting the real network request sent over the wire!
-      final safeUri = VibeShield.redact(options.uri.toString(), overrideMode: overrideMode);
-      final safeHeaders = VibeShield.sanitizeHeaders(options.headers, overrideMode: overrideMode);
-      final safeQuery = options.queryParameters.isNotEmpty
-          ? VibeShield.sanitize(options.queryParameters, overrideMode: overrideMode)
-          : null;
-      final safeData = options.data != null
-          ? VibeShield.sanitize(options.data, overrideMode: overrideMode)
-          : null;
-
-      VibeShield.print(
-        '--> ${options.method} $safeUri',
+    // The real request is never modified: only the log copy is sanitised.
+    if (_active && logRequests) {
+      emitStructuredLog(
+        '--> ${options.method} ${options.uri}',
         tag: 'DIO-REQ',
+        overrideMode: overrideMode,
         metadata: {
-          'headers': safeHeaders,
-          if (safeQuery != null) 'query': safeQuery,
-          if (safeData != null) 'body': safeData,
+          'headers': options.headers,
+          if (options.queryParameters.isNotEmpty)
+            'query': options.queryParameters,
+          if (options.data != null) 'body': options.data,
         },
       );
     }
-
     handler.next(options);
   }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    if (!kDebugMode && !enableInRelease) {
-      handler.next(response);
-      return;
-    }
-
-    if (logResponses) {
-      final safeUri = VibeShield.redact(response.requestOptions.uri.toString(), overrideMode: overrideMode);
-      final safeData = response.data != null
-          ? VibeShield.sanitize(response.data, overrideMode: overrideMode)
-          : null;
-
-      VibeShield.print(
-        '<-- ${response.statusCode} $safeUri',
+    if (_active && logResponses) {
+      emitStructuredLog(
+        '<-- ${response.statusCode} ${response.requestOptions.uri}',
         tag: 'DIO-RES',
+        overrideMode: overrideMode,
         metadata: {
           'status': response.statusCode,
-          if (safeData != null) 'data': safeData,
+          if (response.data != null) 'data': response.data,
         },
       );
     }
-
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    if (!kDebugMode && !enableInRelease) {
-      handler.next(err);
-      return;
-    }
-
-    if (logErrors) {
-      final safeUri = VibeShield.redact(err.requestOptions.uri.toString(), overrideMode: overrideMode);
-      final safeMessage = err.message != null
-          ? VibeShield.redact(err.message!, overrideMode: overrideMode)
-          : null;
-      final safeResponse = err.response?.data != null
-          ? VibeShield.sanitize(err.response!.data, overrideMode: overrideMode)
-          : null;
-
-      VibeShield.error(
-        '<-- ERROR $safeUri${safeMessage != null ? ': $safeMessage' : ''}',
+    if (_active && logErrors) {
+      emitStructuredLog(
+        '<-- ERROR ${err.requestOptions.uri}${err.message != null ? ': ${err.message}' : ''}',
         tag: 'DIO-ERR',
+        level: LogLevel.error,
+        overrideMode: overrideMode,
         metadata: {
-          'uri': safeUri,
-          if (err.response?.statusCode != null) 'status': err.response!.statusCode,
-          if (safeResponse != null) 'response': safeResponse,
+          if (err.response?.statusCode != null)
+            'status': err.response!.statusCode,
+          if (err.response?.data != null) 'response': err.response!.data,
         },
-        error: err.error != null ? VibeShield.redact(err.error.toString(), overrideMode: overrideMode) : null,
-        stackTrace: VibeShield.sanitizeStackTrace(err.stackTrace, overrideMode: overrideMode),
+        error: err.error,
+        stackTrace: err.stackTrace,
       );
     }
-
     handler.next(err);
   }
 }

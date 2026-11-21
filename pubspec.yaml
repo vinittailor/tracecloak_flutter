@@ -1,5 +1,5 @@
 name: vibeshield_flutter
-description: Flutter & Dart SDK for VibeShield — secret redaction with zero custody and zero production footprint via tree-shaking.
+description: Masks API keys, tokens and passwords in Dart and Flutter print() output, logs, Dio HTTP logs, crash reports and AI prompts. Zero custody, off in release builds by default.
 version: 0.1.0
 homepage: https://github.com/vinittailor/vibeshield_flutter
 repository: https://github.com/vinittailor/vibeshield_flutter
@@ -11,6 +11,10 @@ topics:
   - secrets
   - ai
 
+# Tests contain fake, secret-shaped strings on purpose (redaction fixtures).
+false_secrets:
+  - /test/**
+
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
@@ -18,5 +22,5 @@ dependencies:
   dio: ^5.11.1
 
 dev_dependencies:
-  lints: ^3.0.0
+  lints: ^6.1.0
   test: ^1.24.0

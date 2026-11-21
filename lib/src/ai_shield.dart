@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'ai_shield_stub.dart' if (dart.library.io) 'ai_shield_io.dart' as files;
 import 'vibeshield.dart';
 
 /// An AI-proof wrapper for sensitive credentials.
@@ -42,19 +42,35 @@ class SecureKey {
 }
 
 /// AI Shield file generator for Flutter & Dart projects.
-/// Automatically creates and maintains `.cursorignore`, `.copilotignore`,
-/// `.claudeignore`, and `.aiexclude` to prevent AI coding assistants from indexing
-/// sensitive environment files, key stores, and configuration files.
+///
+/// Creates and maintains a VibeShield-managed block in AI-ignore files so AI
+/// coding tools that honour them do not index `.env` files, key stores and
+/// signing configs:
+/// - `.aiignore` — JetBrains AI Assistant (documented, gitignore syntax)
+/// - `.aiexclude` — Gemini in Android Studio
+/// - `.cursorignore` — Cursor
+/// - `.copilotignore`, `.claudeignore` — conventions without official vendor
+///   documentation at the time of writing; kept for tools that read them.
+///   GitHub Copilot content exclusion and Claude Code permission rules are
+///   configured in their own settings, not by these files.
+///
+/// Uses `dart:io` file APIs, so it is meant for the CLI and desktop/VM tooling;
+/// it does not work on Flutter Web.
 class AiShield {
   static const List<String> managedAiIgnoreFiles = [
+    '.aiignore',
+    '.aiexclude',
     '.cursorignore',
     '.copilotignore',
     '.claudeignore',
-    '.aiexclude',
   ];
 
+  static const String _beginMarker =
+      '# --- VibeShield Managed AI-Ignore Rules ---';
+  static const String _endMarker = '# --- End VibeShield Managed Rules ---';
+
   static const List<String> defaultShieldRules = [
-    '# --- VibeShield Managed AI-Ignore Rules ---',
+    _beginMarker,
     '# Protects sensitive Flutter & Dart files from AI indexing and prompt context',
     '.env',
     '.env.*',
@@ -71,30 +87,31 @@ class AiShield {
     '*.key',
     '*secret*',
     '*credential*',
-    '# --- End VibeShield Managed Rules ---',
+    _endMarker,
   ];
 
-  /// Generates or updates AI-ignore files in the given directory (defaults to current dir).
+  /// Creates the AI-ignore files in [rootPath] (defaults to the current
+  /// directory), or refreshes the VibeShield-managed block inside existing ones.
+  /// Lines outside the managed block are never changed.
+  /// Returns the names of files that were created or modified.
+  /// Throws [UnsupportedError] on the web (no `dart:io`).
   static List<String> protectProject([String? rootPath]) {
-    final root = Directory(rootPath ?? Directory.current.path);
-    final updated = <String>[];
+    return files.writeManagedFiles(
+        rootPath, managedAiIgnoreFiles, _withManagedBlock);
+  }
 
-    for (final filename in managedAiIgnoreFiles) {
-      final file = File('${root.path}/$filename');
-      final content = defaultShieldRules.join('\n') + '\n';
-
-      if (!file.existsSync()) {
-        file.writeAsStringSync(content);
-        updated.add(filename);
-      } else {
-        final existing = file.readAsStringSync();
-        if (!existing.contains('# --- VibeShield Managed AI-Ignore Rules ---')) {
-          file.writeAsStringSync('$existing\n\n$content');
-          updated.add(filename);
-        }
-      }
+  /// Inserts or replaces the managed block in [existing] (null = new file).
+  static String _withManagedBlock(String? existing) {
+    final block = defaultShieldRules.join('\n');
+    if (existing == null) return '$block\n';
+    final begin = existing.indexOf(_beginMarker);
+    if (begin < 0) {
+      final sep = existing.isEmpty || existing.endsWith('\n') ? '\n' : '\n\n';
+      return '$existing$sep$block\n';
     }
-
-    return updated;
+    final endIdx = existing.indexOf(_endMarker, begin);
+    final after =
+        endIdx < 0 ? '\n' : existing.substring(endIdx + _endMarker.length);
+    return '${existing.substring(0, begin)}$block$after';
   }
 }

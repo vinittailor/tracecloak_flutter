@@ -8,23 +8,28 @@ void main() {
 
   // Hook for Sentry, Firebase Crashlytics, or internal telemetry (Zero raw custody)
   VibeShield.onRedacted = (event) {
-    print('  [Audit Hook] Intercepted: ${event.ruleName} -> ${event.maskedPreview}');
+    print(
+        '  [Audit Hook] Intercepted: ${event.ruleName} -> ${event.maskedPreview}');
   };
 
   // ----------------------------------------------------------------------
   // 1. The Three Masking Modes: Off, Half (Partial), and Full
   // ----------------------------------------------------------------------
   print('--- 1. Three Masking Modes (Off, Half/Partial, Full) ---');
-  const sampleKey = 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'; // vibeshield-ignore
+  const sampleKey =
+      'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'; // vibeshield-ignore
 
   VibeShield.setMode(MaskMode.off);
-  print('• Mode: OFF      -> ${VibeShield.redact("Key: $sampleKey")}'); // Raw unmasked
+  print(
+      '• Mode: OFF      -> ${VibeShield.redact("Key: $sampleKey")}'); // Raw unmasked
 
   VibeShield.setMode(MaskMode.partial);
-  print('• Mode: HALF     -> ${VibeShield.redact("Key: $sampleKey")}'); // Prefix + suffix preview
+  print(
+      '• Mode: HALF     -> ${VibeShield.redact("Key: $sampleKey")}'); // Prefix + suffix preview
 
   VibeShield.setMode(MaskMode.full);
-  print('• Mode: FULL     -> ${VibeShield.redact("Key: $sampleKey")}'); // 0% overlap shape mask
+  print(
+      '• Mode: FULL     -> ${VibeShield.redact("Key: $sampleKey")}'); // 0% overlap shape mask
 
   // Cycling modes programmatically
   final nextMode = VibeShield.cycleMode();
@@ -46,7 +51,8 @@ void main() {
     path: 'https://api.stripe.com/v1/customers',
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
+      'Authorization':
+          'Bearer sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
       'X-Api-Key': 'AKIAIOSFODNN7EXAMPLE', // vibeshield-ignore
       'Content-Type': 'application/json',
     },
@@ -55,12 +61,14 @@ void main() {
     },
     data: {
       'customerEmail': 'dev@example.com',
-      'cardSecret': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
+      'cardSecret':
+          'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
     },
   );
 
   // Run through interceptor:
-  VibeShield.dioInterceptor().onRequest(reqOptions, RequestInterceptorHandler());
+  VibeShield.dioInterceptor()
+      .onRequest(reqOptions, RequestInterceptorHandler());
 
   // ----------------------------------------------------------------------
   // 3. Zero-Friction Global Interception (VibeShield.run)
@@ -68,14 +76,17 @@ void main() {
   print('\n--- 3. Zero-Friction Global Interception (VibeShield.run) ---');
   VibeShield.run(() {
     // Normal standard print() calls anywhere in your app:
-    print('Standard print: Calling Stripe with sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+    print(
+        'Standard print: Calling Stripe with sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
   });
 
   // ----------------------------------------------------------------------
   // 4. Native Dart String Extensions (.halfMasked, .fullMasked, .redacted)
   // ----------------------------------------------------------------------
-  print('\n--- 4. Native Dart String Extensions (.halfMasked / .fullMasked) ---');
-  const userToken = 'ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // vibeshield-ignore
+  print(
+      '\n--- 4. Native Dart String Extensions (.halfMasked / .fullMasked) ---');
+  const userToken =
+      'ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // vibeshield-ignore
   print('Half mask (preview):    ${userToken.halfMasked}');
   print('Full mask (0% overlap): ${userToken.fullMasked}');
   print('Text redacted:          ${"Logged in with $userToken".redacted}');
@@ -84,13 +95,10 @@ void main() {
   // 5. Fluent Structured Logging with Metadata
   // ----------------------------------------------------------------------
   print('\n--- 5. Fluent Structured Logging with Metadata ---');
-  VibeShield.log('Payment processed', LogLevel.info)
-      .tag('BILLING')
-      .data({
-        'amount': 99.00,
-        'secret': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
-      })
-      .send();
+  VibeShield.log('Payment processed', LogLevel.info).tag('BILLING').data({
+    'amount': 99.00,
+    'secret': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
+  }).send();
 
   print('\n========================================================');
   print('  ✅ All 3 modes and Dio interceptor verified live!');

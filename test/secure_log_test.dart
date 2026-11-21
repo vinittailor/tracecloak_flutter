@@ -3,10 +3,7 @@ import 'package:vibeshield_flutter/vibeshield_flutter.dart';
 
 void main() {
   group('Dart/Flutter SecureLog Unit Tests', () {
-    setUp(() {
-      SecureLog.mode = MaskMode.partial;
-      SecureLog.customPrinter = null;
-    });
+    setUp(SecureLog.reset);
 
     test('SecureLog.mask in partial mode', () {
       final secret = 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890';
@@ -24,7 +21,8 @@ void main() {
     });
 
     test('SecureLog.redact removes live secrets from log messages', () {
-      final log = 'Payment key: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890 for AWS AKIAIOSFODNN7EXAMPLE';
+      final log =
+          'Payment key: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890 for AWS AKIAIOSFODNN7EXAMPLE';
       final redacted = SecureLog.redact(log);
 
       expect(redacted.contains('sk_live_****7890'), isTrue);
@@ -33,11 +31,13 @@ void main() {
       expect(redacted.contains('IOSFODNN7EXA'), isFalse);
     });
 
-    test('SecureLog.print intercepts and outputs redacted logs in debug mode', () {
+    test('SecureLog.print intercepts and outputs redacted logs in debug mode',
+        () {
       final captured = <String>[];
       SecureLog.customPrinter = (msg) => captured.add(msg);
 
-      SecureLog.print('Connecting to https://ghp_16C7e42F292c6912E7710c838347Ae178B4a@github.com');
+      SecureLog.print(
+          'Connecting to https://ghp_16C7e42F292c6912E7710c838347Ae178B4a@github.com');
 
       expect(captured.length, equals(1));
       expect(captured[0].contains('ghp_****8B4a'), isTrue);
@@ -85,7 +85,8 @@ void main() {
       expect(redacted.contains('****'), isTrue);
     });
 
-    test('onRedacted callback sends non-custodial metadata without raw secrets', () {
+    test('onRedacted callback sends non-custodial metadata without raw secrets',
+        () {
       final events = <RedactionEvent>[];
       SecureLog.onRedacted = (evt) => events.add(evt);
 
@@ -101,4 +102,3 @@ void main() {
     });
   });
 }
-

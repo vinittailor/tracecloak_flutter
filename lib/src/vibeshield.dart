@@ -1,11 +1,11 @@
 /// Unified VibeShield Flutter/Dart SDK combining:
-/// 1. Zero-code global zone & print interception (`VibeShield.run()`)
+/// 1. Zone-based `print()` interception (`VibeShield.run()`)
 /// 2. Native Dart extension methods (`secret.masked`, `text.redacted`, `secret.fullMasked`)
-/// 3. Structured fluent logging with auto-sanitized metadata (`VibeShield.info(...).data(...).send()`)
+/// 3. Structured fluent logging with auto-sanitized metadata (`VibeShield.info(...)`, `VibeShield.log(...).send()`)
 /// 4. Network header scrubbing (`VibeShield.sanitizeHeaders(...)`)
 /// 5. Non-custodial audit callbacks (`VibeShield.onRedacted`)
-/// 6. Provable zero release footprint (`kDebugMode` compiler tree-shaking)
-library vibeshield.main;
+/// 6. No zone and no log output in release builds unless `enableInRelease: true`
+library;
 
 import 'dart:async';
 import 'masker.dart';
@@ -14,6 +14,7 @@ import 'entropy.dart';
 import 'types.dart';
 import 'dio_interceptor.dart';
 import 'ai_shield.dart';
+import 'log_output.dart';
 
 export 'masker.dart';
 export 'rules.dart';
@@ -25,12 +26,65 @@ export 'ai_shield.dart';
 /// Backward-compatibility alias
 typedef SecureLog = VibeShield;
 
+/// An error whose text has been redacted, passed to `VibeShield.run(onError:)`
+/// and to the parent zone's uncaught-error handler.
+///
+/// [toString] and [message] contain only redacted text, so it is safe to hand
+/// to Crashlytics, Sentry or a logger. [original] is the untouched error, kept
+/// so you can branch on its type (`if (e.original is DioException)`); do not log
+/// [original] itself, because its `toString()` may contain secrets.
+class RedactedError implements Exception {
+  /// The original, unredacted error object.
+  final Object original;
+
+  /// `original.toString()` with all secrets redacted.
+  final String message;
+
+  RedactedError(this.original, this.message);
+
+  /// Runtime type of [original].
+  Type get originalType => original.runtimeType;
+
+  @override
+  String toString() => message;
+}
+
+class _Span {
+  final int start;
+  final int end;
+  final String ruleName;
+  final String category;
+  final String? prefix;
+
+  /// Tie-breaker for spans with the same bounds: 0 exact / confirmed rule,
+  /// 1 heuristic rule, 2 entropy.
+  final int rank;
+  const _Span(this.start, this.end, this.ruleName, this.category, this.rank,
+      [this.prefix]);
+}
+
 class VibeShield {
   static MaskMode mode = MaskMode.partial;
   static final Set<String> _exactMatches = {};
   static final List<DartSecretRule> _customRules = [];
   static void Function(String message)? customPrinter;
   static bool _installed = false;
+  static bool _releaseOutputEnabled = false;
+
+  /// Maximum nesting depth walked by [sanitize]; deeper values are replaced.
+  static const int _maxDepth = 32;
+
+  /// Map keys / header names whose values are always masked in full.
+  static final RegExp _sensitiveKey = RegExp(
+    r'pass(?:word|wd|phrase)|^pass$|pwd|secret|token|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|'
+    r'credential|cookie|session|authorization|auth$|signature|^pin$|^otp$|^cvv$|^key$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _authScheme = RegExp(
+      r'^(Bearer|Basic|Digest|Token|Bot)\s+(.+)$',
+      caseSensitive: false,
+      dotAll: true);
 
   /// Mode inspection getters
   static bool get isOff => mode == MaskMode.off;
@@ -61,6 +115,19 @@ class VibeShield {
     return mode;
   }
 
+  /// Restores all global state to its defaults: mode, exact matches, custom
+  /// rules, [customPrinter], [onRedacted] and the installed/release flags.
+  /// Intended for tests (`setUp(VibeShield.reset)`).
+  static void reset() {
+    mode = MaskMode.partial;
+    _exactMatches.clear();
+    _customRules.clear();
+    customPrinter = null;
+    onRedacted = null;
+    _installed = false;
+    _releaseOutputEnabled = false;
+  }
+
   /// Direct plug-and-play Dio Interceptor instance.
   /// Usage: `dio.interceptors.add(VibeShield.dioInterceptor());`
   /// Optionally override the masking mode specifically for Dio:
@@ -81,53 +148,67 @@ class VibeShield {
       );
 
   /// Non-custodial audit callback hook (Safe for Sentry, Crashlytics, Telemetry).
+  /// Exceptions thrown by the callback are swallowed so they cannot break logging.
   static void Function(RedactionEvent event)? onRedacted;
 
   // --------------------------------------------------------------------------
-  // 1. GLOBAL ZERO-CODE INTERCEPTION (Zone & Print)
+  // 1. ZONE-BASED PRINT INTERCEPTION
   // --------------------------------------------------------------------------
 
-  /// Pre-configures global VibeShield settings (mode, exact secrets, audit listeners).
+  /// Stores global configuration (mode, exact secrets, audit listener) WITHOUT
+  /// intercepting anything.
   ///
-  /// NOTE ON DART PRINT INTERCEPTION:
-  /// In the Dart runtime, top-level `print()` is a static function that delegates to
-  /// the active [Zone]. To intercept all standard `print()` statements across your
-  /// entire Flutter app and third-party libraries, use [VibeShield.run]:
+  /// `install()` does **not** mask plain `print()`. Dart's `print()` can only be
+  /// intercepted by running code inside a [Zone]; use [VibeShield.run] for that:
   /// ```dart
   /// void main() => VibeShield.run(() => runApp(const MyApp()));
   /// ```
+  /// Configuration is applied in every build mode, so [redact], [aiSafe] and
+  /// [sanitize] keep honouring [exactSecrets] in release builds. Structured log
+  /// output ([VibeShield.print], [info], ...) is only emitted in release builds
+  /// when [enableInRelease] is true.
   static void install({
     MaskMode? initialMode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
     void Function(RedactionEvent event)? onRedactionEvent,
   }) {
-    if (!kDebugMode && !enableInRelease) {
-      return;
-    }
-
-    if (initialMode != null) mode = initialMode;
-    if (exactSecrets != null) addExactMatches(exactSecrets);
-    if (onRedactionEvent != null) onRedacted = onRedactionEvent;
-    _installed = true;
+    _applyConfig(initialMode, exactSecrets, onRedactionEvent);
+    if (enableInRelease) _releaseOutputEnabled = true;
+    if (kDebugMode || enableInRelease) _installed = true;
   }
 
-  /// True if [install] or [run] has been called.
+  /// True if [install] or [run] has configured VibeShield for this build mode.
+  /// This does not mean `print()` is intercepted — only code inside [run] is.
   static bool get isInstalled => _installed;
 
-  /// Runs an entire Flutter app or code block inside an isolated auto-redacting Dart Zone.
+  static void _applyConfig(
+    MaskMode? newMode,
+    List<String>? exactSecrets,
+    void Function(RedactionEvent event)? onRedactionEvent,
+  ) {
+    if (newMode != null) mode = newMode;
+    if (exactSecrets != null) addExactMatches(exactSecrets);
+    if (onRedactionEvent != null) onRedacted = onRedactionEvent;
+  }
+
+  /// Runs an entire Flutter app or code block inside an auto-redacting Dart Zone.
   ///
-  /// In production release builds (e.g. building APK or AAB files), if [enableInRelease]
-  /// is false (the default), VibeShield directly invokes [body] with ZERO Zone interception,
-  /// ZERO overhead, and zero interference with production performance.
+  /// Every `print()` executed inside [body] — including async code, timers and
+  /// microtasks started from it — is redacted. Not covered: `stdout.write`,
+  /// `dart:developer` `log()`, other isolates, Flutter's `debugPrint` (wrap it
+  /// with [wrapDebugPrint]), and errors thrown before [run] is called.
   ///
-  /// Recommended pattern for Flutter `main()`:
+  /// Uncaught errors are wrapped in a [RedactedError] (redacted text, original
+  /// object kept in [RedactedError.original]) and passed to [onError], or to the
+  /// parent zone if [onError] is null.
+  ///
+  /// In release builds with [enableInRelease] false (the default), [body] runs
+  /// directly with no Zone. [mode], [exactSecrets] and [onRedactionEvent] are
+  /// still applied so explicit [redact] / [aiSafe] calls keep working.
+  ///
   /// ```dart
-  /// void main() => VibeShield.run(
-  ///   () => runApp(const MyApp()),
-  ///   mode: MaskMode.partial,
-  ///   enableInRelease: false, // Provably calls runApp directly in release APK/AAB!
-  /// );
+  /// void main() => VibeShield.run(() => runApp(const MyApp()));
   /// ```
   static R? run<R>(
     R Function() body, {
@@ -137,53 +218,51 @@ class VibeShield {
     void Function(RedactionEvent event)? onRedactionEvent,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
-    // In production release builds (APK/AAB), completely bypass VibeShield by default!
+    _applyConfig(mode, exactSecrets, onRedactionEvent);
+
+    // In release builds, bypass the Zone entirely by default.
     if (!kDebugMode && !enableInRelease) {
       return body();
     }
 
     _installed = true;
-    if (mode != null) VibeShield.mode = mode;
-    if (exactSecrets != null) addExactMatches(exactSecrets);
-    if (onRedactionEvent != null) onRedacted = onRedactionEvent;
+    if (enableInRelease) _releaseOutputEnabled = true;
 
     final zoneSpec = ZoneSpecification(
       print: (self, parent, zone, line) {
         final sanitized = redact(line);
-        if (customPrinter != null) {
-          customPrinter!(sanitized);
+        final printer = customPrinter;
+        if (printer != null) {
+          // Run outside this zone so a printer that itself calls print()
+          // does not re-enter this handler.
+          self.parent!.run(() => printer(sanitized));
         } else {
           parent.print(zone, sanitized);
         }
       },
-      handleUncaughtError: (self, parent, zone, error, stackTrace) {
-        final sanitizedError = redact(error.toString());
-        final sanitizedStack = sanitizeStackTrace(stackTrace);
-        if (onError != null) {
-          onError(sanitizedError, sanitizedStack);
-        } else {
-          parent.handleUncaughtError(zone, sanitizedError, sanitizedStack);
-        }
-      },
+      handleUncaughtError: onError != null
+          ? null
+          : (self, parent, zone, error, stackTrace) {
+              parent.handleUncaughtError(
+                  zone, _redactError(error), sanitizeStackTrace(stackTrace));
+            },
     );
 
     if (onError != null) {
       return runZonedGuarded<R>(
         body,
-        (error, stackTrace) {
-          final sanitizedError = redact(error.toString());
-          final sanitizedStack = sanitizeStackTrace(stackTrace);
-          onError(sanitizedError, sanitizedStack);
-        },
+        (error, stackTrace) =>
+            onError(_redactError(error), sanitizeStackTrace(stackTrace)),
         zoneSpecification: zoneSpec,
       );
     }
 
-    return runZoned(
-      body,
-      zoneSpecification: zoneSpec,
-    );
+    return runZoned(body, zoneSpecification: zoneSpec);
   }
+
+  static RedactedError _redactError(Object error) => error is RedactedError
+      ? error
+      : RedactedError(error, redact(error.toString()));
 
   /// Intercepts Flutter's `debugPrint` callback to ensure framework logs are masked.
   ///
@@ -209,7 +288,8 @@ class VibeShield {
 
   /// Sanitizes a [StackTrace], ensuring credentials, tokens in query parameters,
   /// or dumped variable strings in stack traces do not leak to the console.
-  static StackTrace sanitizeStackTrace(StackTrace stackTrace, {MaskMode? overrideMode}) {
+  static StackTrace sanitizeStackTrace(StackTrace stackTrace,
+      {MaskMode? overrideMode}) {
     final sanitized = redact(stackTrace.toString(), overrideMode: overrideMode);
     return StackTrace.fromString(sanitized);
   }
@@ -232,6 +312,7 @@ class VibeShield {
   // --------------------------------------------------------------------------
 
   /// Register exact match strings to redact (e.g. from local environment / .env).
+  /// Values shorter than 4 characters (after trimming) are ignored.
   static void addExactMatches(List<String> secrets) {
     for (final s in secrets) {
       if (s.trim().length >= 4) {
@@ -240,7 +321,9 @@ class VibeShield {
     }
   }
 
-  /// Register custom secret rules.
+  /// Register custom secret rules. If a rule's regex has a capture group, only
+  /// group 1 is masked (it should be at the end of the match); otherwise the
+  /// whole match is masked.
   static void addRules(List<DartSecretRule> rules) {
     _customRules.addAll(rules);
   }
@@ -249,6 +332,10 @@ class VibeShield {
   static void clearRules() {
     _customRules.clear();
   }
+
+  // True if a map key or header name (e.g. `password`, `Authorization`,
+  // `X-Api-Key`, `Cookie`) marks its value as a secret.
+  static bool _isSensitiveKey(String key) => _sensitiveKey.hasMatch(key);
 
   /// Convenience single-value masking helper.
   static String mask(String secret, {MaskMode? overrideMode}) {
@@ -260,84 +347,187 @@ class VibeShield {
     return partialMask(secret);
   }
 
-  /// Recursively sanitizes any dynamic object (Map, List, or primitive).
+  /// Recursively sanitizes any value for logging.
+  ///
+  /// - Strings are passed through [redact].
+  /// - Map values under sensitive keys (see `_sensitiveKey`) are masked in full.
+  /// - Maps and iterables are walked (iterables become lists, cycles and nesting
+  ///   deeper than 32 levels are replaced by a placeholder).
+  /// - `null`, numbers, booleans and enums are returned unchanged.
+  /// - Any other object is converted with `toString()` and redacted, so custom
+  ///   classes cannot leak secrets through their `toString()`.
   static dynamic sanitize(dynamic value, {MaskMode? overrideMode}) {
+    final activeMode = overrideMode ?? mode;
+    if (activeMode == MaskMode.off) return value;
+    return _sanitize(value, activeMode, Set<Object>.identity(), 0, false);
+  }
+
+  static dynamic _sanitize(
+      dynamic value, MaskMode m, Set<Object> seen, int depth, bool forceMask) {
     if (value == null) return null;
-    if (value is String) {
-      return redact(value, overrideMode: overrideMode);
-    }
-    if (value is Map) {
-      final sanitizedMap = <dynamic, dynamic>{};
-      for (final entry in value.entries) {
-        final sanitizedKey = entry.key is String
-            ? redact(entry.key as String, overrideMode: overrideMode)
-            : entry.key;
-        sanitizedMap[sanitizedKey] = sanitize(entry.value, overrideMode: overrideMode);
+    if (value is Map || value is Iterable) {
+      if (depth >= _maxDepth) return '[max depth]';
+      if (!seen.add(value as Object)) return '[circular]';
+      try {
+        if (value is Map) {
+          final out = <dynamic, dynamic>{};
+          for (final entry in value.entries) {
+            final key = entry.key;
+            final sensitive =
+                forceMask || (key is String && _isSensitiveKey(key));
+            out[_sanitizeKey(key, m)] =
+                _sanitize(entry.value, m, seen, depth + 1, sensitive);
+          }
+          return out;
+        }
+        return [
+          for (final item in value as Iterable)
+            _sanitize(item, m, seen, depth + 1, forceMask)
+        ];
+      } finally {
+        seen.remove(value);
       }
-      return sanitizedMap;
     }
-    if (value is Iterable) {
-      return value.map((item) => sanitize(item, overrideMode: overrideMode)).toList();
-    }
-    return value;
+    // SecureKey is already masked by its own toString().
+    if (value is SecureKey) return value.toString();
+    if (forceMask) return _maskWhole(value.toString(), m);
+    if (value is String) return redact(value, overrideMode: m);
+    if (value is num || value is bool || value is Enum) return value;
+    return redact(value.toString(), overrideMode: m);
+  }
+
+  static dynamic _sanitizeKey(dynamic key, MaskMode m) {
+    if (key == null || key is num || key is bool || key is Enum) return key;
+    return redact(key.toString(), overrideMode: m);
+  }
+
+  /// Masks an entire value known to be secret, keeping an auth scheme
+  /// (`Bearer ****`) visible.
+  static String _maskWhole(String value, MaskMode m) {
+    if (value.isEmpty) return value;
+    final scheme = _authScheme.firstMatch(value);
+    final masked = scheme != null
+        ? '${scheme.group(1)} ${mask(scheme.group(2)!, overrideMode: m)}'
+        : mask(value, overrideMode: m);
+    _fireRedactedEvent('Sensitive Key', 'key', masked);
+    return masked;
   }
 
   /// Redacts sensitive credentials across any string message.
-  /// Performance optimized: short messages (< 16 chars) skip regex/entropy passes
-  /// unless exact matches are configured.
+  ///
+  /// Exact matches, rule matches and high-entropy tokens are all located on the
+  /// original text, overlapping hits are merged, and each merged span is masked
+  /// exactly once.
   static String redact(String message, {MaskMode? overrideMode}) {
     final activeMode = overrideMode ?? mode;
     if (activeMode == MaskMode.off || message.isEmpty) return message;
 
-    // Fast-path: short strings (< 16 chars) cannot match standard credential patterns
-    if (message.length < 16 && _exactMatches.isEmpty) return message;
+    final spans = <_Span>[];
 
-    var sanitized = message;
-
-    // 1. Redact exact matches (.env, vault)
+    // 1. Exact matches (.env, vault)
     for (final exact in _exactMatches) {
-      if (sanitized.contains(exact)) {
-        final replacement = activeMode == MaskMode.full ? fullMask(exact) : partialMask(exact);
-        sanitized = sanitized.replaceAll(exact, replacement);
-        _fireRedactedEvent('Exact Match', 'exact', replacement);
+      var i = message.indexOf(exact);
+      while (i >= 0) {
+        spans.add(_Span(i, i + exact.length, 'Exact Match', 'exact', 0));
+        i = message.indexOf(exact, i + exact.length);
       }
     }
 
-    // 2. Redact pattern rules (canonical + custom)
-    final allRules = [...defaultDartRules, ..._customRules];
-    for (final rule in allRules) {
-      sanitized = sanitized.replaceAllMapped(rule.regex, (match) {
-        final raw = match.group(1) ?? match.group(0)!;
-        final replacement = activeMode == MaskMode.full
-            ? fullMask(raw)
-            : partialMask(raw, prefix: rule.prefix);
-        _fireRedactedEvent(rule.name, rule.category, replacement);
-        return replacement;
-      });
+    // 2. Pattern rules (canonical + custom)
+    _collectRuleSpans(defaultDartRules, message, spans);
+    if (_customRules.isNotEmpty) {
+      _collectRuleSpans(_customRules, message, spans);
     }
 
-    // 3. Fallback: Shannon entropy detection for unknown tokens
-    final entropyMatches = scanHighEntropyTokens(sanitized);
-    if (entropyMatches.isNotEmpty) {
-      final sorted = List.of(entropyMatches)..sort((a, b) => b.start.compareTo(a.start));
-      for (final em in sorted) {
-        final replacement = activeMode == MaskMode.full ? fullMask(em.token) : partialMask(em.token);
-        sanitized = sanitized.replaceRange(em.start, em.end, replacement);
-        _fireRedactedEvent('High-Entropy Token', 'entropy', replacement);
+    // 3. Fallback: Shannon entropy detection for unknown tokens, on a copy where
+    // spans already found are blanked out (same offsets), so a rule hit is not
+    // swallowed by a longer token such as `apiKey=sk_live_...`.
+    var entropyInput = message;
+    if (spans.isNotEmpty) {
+      final units = List<int>.of(message.codeUnits);
+      for (final s in spans) {
+        units.fillRange(s.start, s.end, 0x20);
       }
+      entropyInput = String.fromCharCodes(units);
+    }
+    for (final em in scanHighEntropyTokens(entropyInput)) {
+      spans.add(_Span(em.start, em.end, 'High-Entropy Token', 'entropy', 2));
     }
 
-    return sanitized;
+    if (spans.isEmpty) return message;
+
+    // Earliest first; for equal starts the longest first, then the most
+    // specific rule, so it names the merged span.
+    spans.sort((a, b) {
+      if (a.start != b.start) return a.start.compareTo(b.start);
+      if (a.end != b.end) return b.end.compareTo(a.end);
+      return a.rank.compareTo(b.rank);
+    });
+
+    final out = StringBuffer();
+    var cursor = 0;
+    var i = 0;
+    while (i < spans.length) {
+      final head = spans[i];
+      var end = head.end;
+      var j = i + 1;
+      while (j < spans.length && spans[j].start < end) {
+        if (spans[j].end > end) end = spans[j].end;
+        j++;
+      }
+      final raw = message.substring(head.start, end);
+      final replacement = activeMode == MaskMode.full
+          ? fullMask(raw)
+          : partialMask(raw, prefix: head.prefix);
+      out
+        ..write(message.substring(cursor, head.start))
+        ..write(replacement);
+      _fireRedactedEvent(head.ruleName, head.category, replacement);
+      cursor = end;
+      i = j;
+    }
+    out.write(message.substring(cursor));
+    return out.toString();
   }
 
-  static void _fireRedactedEvent(String ruleName, String category, String maskedPreview) {
-    onRedacted?.call(RedactionEvent(
-      ruleName: ruleName,
-      category: category,
-      maskedPreview: maskedPreview,
-      timestamp: DateTime.now(),
-      source: 'flutter-sdk',
-    ));
+  static void _collectRuleSpans(
+      List<DartSecretRule> rules, String message, List<_Span> spans) {
+    for (final rule in rules) {
+      for (final match in rule.regex.allMatches(message)) {
+        final whole = match.group(0)!;
+        var start = match.start;
+        var end = match.end;
+        final group = match.groupCount >= 1 ? match.group(1) : null;
+        if (group != null && group.isNotEmpty) {
+          final offset = whole.endsWith(group)
+              ? whole.length - group.length
+              : whole.lastIndexOf(group);
+          start = match.start + offset;
+          end = start + group.length;
+        }
+        if (end > start) {
+          spans.add(_Span(start, end, rule.name, rule.category,
+              rule.confidence == kConfidenceHeuristic ? 1 : 0, rule.prefix));
+        }
+      }
+    }
+  }
+
+  static void _fireRedactedEvent(
+      String ruleName, String category, String maskedPreview) {
+    final listener = onRedacted;
+    if (listener == null) return;
+    try {
+      listener(RedactionEvent(
+        ruleName: ruleName,
+        category: category,
+        maskedPreview: maskedPreview,
+        timestamp: DateTime.now(),
+        source: 'flutter-sdk',
+      ));
+    } catch (_) {
+      // A failing audit hook must never break logging.
+    }
   }
 
   /// Sanitizes text, prompts, logs, or JSON payloads specifically for passing to AI / LLM models.
@@ -347,8 +537,10 @@ class VibeShield {
     return sanitize(payload, overrideMode: MaskMode.full);
   }
 
-  /// Automatically creates and syncs `.cursorignore`, `.copilotignore`, `.claudeignore`, and `.aiexclude`
-  /// in your Flutter project to block IDE AI agents from reading `.env`, `key.properties`, and keystores.
+  /// Creates or refreshes AI-ignore files (`.aiignore`, `.aiexclude`, `.cursorignore`,
+  /// `.copilotignore`, `.claudeignore`) in your project to keep `.env`,
+  /// `key.properties` and keystores out of AI tools that honour them.
+  /// Requires `dart:io` (not available on Flutter Web).
   static List<String> protectFromAi([String? rootPath]) {
     return AiShield.protectProject(rootPath);
   }
@@ -357,25 +549,21 @@ class VibeShield {
   // 3. NETWORK & HTTP SCRUBBING (Headers & Payloads)
   // --------------------------------------------------------------------------
 
-  /// Sanitizes HTTP headers map (e.g. Authorization, X-Api-Key, Cookie, Bearer tokens).
+  /// Sanitizes an HTTP headers map. Headers whose names mark them as credentials
+  /// (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `*-Token`, ...) are
+  /// always masked in full (`Bearer ****`); other headers are scanned with [redact].
   static Map<String, dynamic> sanitizeHeaders(
     Map<String, dynamic> headers, {
     MaskMode? overrideMode,
   }) {
-    final result = <String, dynamic>{};
-    for (final entry in headers.entries) {
-      final keyLower = entry.key.toLowerCase();
-      if (keyLower.contains('auth') ||
-          keyLower.contains('token') ||
-          keyLower.contains('key') ||
-          keyLower.contains('secret') ||
-          keyLower.contains('cookie')) {
-        result[entry.key] = redact(entry.value.toString(), overrideMode: overrideMode);
-      } else {
-        result[entry.key] = sanitize(entry.value, overrideMode: overrideMode);
-      }
-    }
-    return result;
+    final activeMode = overrideMode ?? mode;
+    if (activeMode == MaskMode.off) return Map.of(headers);
+    final seen = Set<Object>.identity();
+    return {
+      for (final entry in headers.entries)
+        entry.key: _sanitize(
+            entry.value, activeMode, seen, 0, _isSensitiveKey(entry.key)),
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -383,7 +571,8 @@ class VibeShield {
   // --------------------------------------------------------------------------
 
   /// Fluent log builder: `VibeShield.log('Checkout').tag('BILLING').data({...}).send()`
-  static VibeShieldLogBuilder log(String message, [LogLevel level = LogLevel.info]) =>
+  static VibeShieldLogBuilder log(String message,
+          [LogLevel level = LogLevel.info]) =>
       VibeShieldLogBuilder(message, level);
 
   /// Direct structured methods for each log level
@@ -394,7 +583,12 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.debug);
+      print(message,
+          metadata: metadata,
+          error: error,
+          stackTrace: stackTrace,
+          tag: tag,
+          level: LogLevel.debug);
 
   static void info(
     Object? message, {
@@ -403,7 +597,12 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.info);
+      print(message,
+          metadata: metadata,
+          error: error,
+          stackTrace: stackTrace,
+          tag: tag,
+          level: LogLevel.info);
 
   static void warn(
     Object? message, {
@@ -412,7 +611,12 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.warn);
+      print(message,
+          metadata: metadata,
+          error: error,
+          stackTrace: stackTrace,
+          tag: tag,
+          level: LogLevel.warn);
 
   static void error(
     Object? message, {
@@ -421,9 +625,18 @@ class VibeShield {
     StackTrace? stackTrace,
     String? tag,
   }) =>
-      print(message, metadata: metadata, error: error, stackTrace: stackTrace, tag: tag, level: LogLevel.error);
+      print(message,
+          metadata: metadata,
+          error: error,
+          stackTrace: stackTrace,
+          tag: tag,
+          level: LogLevel.error);
 
-  /// Direct structured print method.
+  /// Direct structured print method. Output format:
+  /// `[LEVEL] [tag] message | metadata: {...} | error: ...` followed by the stack trace.
+  ///
+  /// Emits in debug builds, and in release builds only after [run] or [install]
+  /// was called with `enableInRelease: true`.
   static void print(
     Object? object, {
     Map<String, dynamic>? metadata,
@@ -432,38 +645,15 @@ class VibeShield {
     String? tag,
     LogLevel level = LogLevel.info,
   }) {
-    if (kDebugMode) {
-      final text = object?.toString() ?? 'null';
-      final sanitizedText = redact(text);
-      final sanitizedMetadata = metadata != null ? sanitize(metadata) as Map : null;
-
-      final buffer = StringBuffer();
-      if (tag != null) {
-        buffer.write('[$tag] ');
-      }
-      buffer.write(sanitizedText);
-
-      if (sanitizedMetadata != null && sanitizedMetadata.isNotEmpty) {
-        buffer.write(' | metadata: $sanitizedMetadata');
-      }
-
-      if (error != null) {
-        final sanitizedError = redact(error.toString());
-        buffer.write(' | error: $sanitizedError');
-      }
-
-      if (stackTrace != null) {
-        final sanitizedStack = sanitizeStackTrace(stackTrace);
-        buffer.write('\n$sanitizedStack');
-      }
-
-      final output = buffer.toString();
-
-      if (customPrinter != null) {
-        customPrinter!(output);
-      } else {
-        Zone.root.print(output);
-      }
+    if (kDebugMode || _releaseOutputEnabled) {
+      emitStructuredLog(
+        object,
+        metadata: metadata,
+        error: error,
+        stackTrace: stackTrace,
+        tag: tag,
+        level: level,
+      );
     }
   }
 }
@@ -520,7 +710,8 @@ extension VibeShieldStringExtension on String {
   String get masked => VibeShield.mask(this, overrideMode: MaskMode.partial);
 
   /// Half mask alias for partial mode.
-  String get halfMasked => VibeShield.mask(this, overrideMode: MaskMode.partial);
+  String get halfMasked =>
+      VibeShield.mask(this, overrideMode: MaskMode.partial);
 
   /// Masks this string in full shape-preserving mode (guaranteeing 0% character overlap).
   String get fullMasked => VibeShield.mask(this, overrideMode: MaskMode.full);

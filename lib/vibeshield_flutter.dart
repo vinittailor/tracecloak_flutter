@@ -1,3 +1,3 @@
-library vibeshield_flutter;
+library;
 
 export 'src/vibeshield.dart';

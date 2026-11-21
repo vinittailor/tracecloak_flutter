@@ -22,18 +22,26 @@ void main(List<String> args) {
   if (args.contains('--shield-ai') || args.contains('--protect-ai')) {
     final updated = VibeShield.protectFromAi(scanDir.path);
     stdout.writeln('🛡️  VibeShield AI Shield activated!');
-    stdout.writeln('Created/updated ${updated.length} AI-ignore file(s) to block AI tools:');
+    stdout.writeln(
+        'Created/updated ${updated.length} AI-ignore file(s) to block AI tools:');
     for (final f in updated) {
       stdout.writeln('  • $f');
     }
-    stdout.writeln('\nYour .env, key.properties, and secrets are now blocked from Cursor, Copilot, Claude, and JetBrains AI.');
+    stdout.writeln(
+        '\nAI tools that honour these files (JetBrains AI Assistant, Gemini in Android Studio, Cursor)');
+    stdout.writeln(
+        'will skip .env, key.properties and keystores. GitHub Copilot and Claude Code exclusions');
+    stdout.writeln('are configured in their own settings.');
     exit(0);
   }
 
   if (!jsonOutput) {
-    stdout.writeln('======================================================================');
-    stdout.writeln('      🛡️  VIBESHIELD FLUTTER & DART STATIC SECURITY SCANNER  🛡️');
-    stdout.writeln('======================================================================');
+    stdout.writeln(
+        '======================================================================');
+    stdout.writeln(
+        '      🛡️  VIBESHIELD FLUTTER & DART STATIC SECURITY SCANNER  🛡️');
+    stdout.writeln(
+        '======================================================================');
     stdout.writeln('Scanning directory: ${scanDir.absolute.path}\n');
   }
 
@@ -53,10 +61,13 @@ void main(List<String> args) {
           continue;
         }
 
-        // 1. Scan canonical rules
-        for (final rule in defaultDartRules) {
+        // 1. Scan canonical rules. Heuristic rules (keyword assignments, URL
+        // query params) are for log redaction only: in source code they mostly
+        // match variable references such as `password = controller.text`.
+        for (final rule in _scanRules) {
           for (final match in rule.regex.allMatches(line)) {
-            final raw = match.group(1) ?? match.group(0)!;
+            final raw = (match.groupCount >= 1 ? match.group(1) : null) ??
+                match.group(0)!;
             findings.add(ScanFinding(
               filePath: relPath,
               line: lineIdx + 1,
@@ -65,7 +76,8 @@ void main(List<String> args) {
               category: rule.category,
               cwe: rule.cwe,
               confidence: 'confirmed',
-              maskedPreview: VibeShield.mask(raw, overrideMode: MaskMode.partial),
+              maskedPreview:
+                  VibeShield.mask(raw, overrideMode: MaskMode.partial),
               variableName: _extractVarName(line),
             ));
           }
@@ -90,7 +102,8 @@ void main(List<String> args) {
               category: 'entropy',
               cwe: 'CWE-798',
               confidence: 'entropy',
-              maskedPreview: VibeShield.mask(em.token, overrideMode: MaskMode.partial),
+              maskedPreview:
+                  VibeShield.mask(em.token, overrideMode: MaskMode.partial),
               variableName: _extractVarName(line),
             ));
           }
@@ -104,12 +117,17 @@ void main(List<String> args) {
   final confirmed = findings.where((f) => f.confidence == 'confirmed').toList();
   final warnings = findings.where((f) => f.confidence == 'entropy').toList();
 
+  final failed = confirmed.isNotEmpty || (failOnWarning && warnings.isNotEmpty);
+
   if (jsonOutput) {
     stdout.writeln(_toJsonOutput(files.length, confirmed, warnings));
+    exit(failed ? 1 : 0);
   } else {
     if (findings.isEmpty) {
-      stdout.writeln('✅ ALL CLEAN: No leaked API keys or credentials detected across ${files.length} file(s).');
-      stdout.writeln('======================================================================\n');
+      stdout.writeln(
+          '✅ ALL CLEAN: No leaked API keys or credentials detected across ${files.length} file(s).');
+      stdout.writeln(
+          '======================================================================\n');
       exit(0);
     }
 
@@ -124,21 +142,25 @@ void main(List<String> args) {
 
     // Print entropy warnings
     for (final w in warnings) {
-      stdout.writeln('⚠️  [POTENTIAL ENTROPY] ${w.filePath}:${w.line}:${w.column}');
+      stdout.writeln(
+          '⚠️  [POTENTIAL ENTROPY] ${w.filePath}:${w.line}:${w.column}');
       stdout.writeln('   • Variable Name: ${w.variableName}');
       stdout.writeln('   • Vulnerability: ${w.cwe} (${w.ruleName})');
       stdout.writeln('   • Masked Value:  ${w.maskedPreview}\n');
     }
 
-    stdout.writeln('----------------------------------------------------------------------');
+    stdout.writeln(
+        '----------------------------------------------------------------------');
     stdout.writeln('Summary:');
     stdout.writeln('  Files Scanned:       ${files.length}');
     stdout.writeln('  Confirmed Leaks:     ${confirmed.length}');
     stdout.writeln('  Entropy Warnings:    ${warnings.length}');
-    stdout.writeln('----------------------------------------------------------------------');
+    stdout.writeln(
+        '----------------------------------------------------------------------');
 
-    if (confirmed.isNotEmpty || (failOnWarning && warnings.isNotEmpty)) {
-      stderr.writeln('\n❌ VIBESHIELD SCAN FAILED: Hardcoded credentials must be resolved before deployment.');
+    if (failed) {
+      stderr.writeln(
+          '\n❌ VIBESHIELD SCAN FAILED: Hardcoded credentials must be resolved before deployment.');
       exit(1);
     } else {
       stdout.writeln('\n✅ PASSED: No confirmed credentials found.');
@@ -146,6 +168,10 @@ void main(List<String> args) {
     }
   }
 }
+
+final List<DartSecretRule> _scanRules = defaultDartRules
+    .where((r) => r.confidence == kConfidenceConfirmed)
+    .toList();
 
 class ScanFinding {
   final String filePath;
@@ -188,11 +214,15 @@ List<File> _findFilesToScan(Directory root) {
     for (final entity in root.listSync(recursive: true, followLinks: false)) {
       if (entity is File) {
         final path = entity.path.replaceAll('\\', '/');
-        final isIgnored = ignoredDirs.any((d) => path.contains('/$d/') || path.startsWith('$d/'));
+        final isIgnored = ignoredDirs
+            .any((d) => path.contains('/$d/') || path.startsWith('$d/'));
         if (isIgnored) continue;
 
         // Skip lock files and compiled assets
-        if (path.endsWith('.lock') || path.endsWith('.lockb') || path.endsWith('.png') || path.endsWith('.jpg')) {
+        if (path.endsWith('.lock') ||
+            path.endsWith('.lockb') ||
+            path.endsWith('.png') ||
+            path.endsWith('.jpg')) {
           continue;
         }
 
@@ -216,14 +246,18 @@ List<File> _findFilesToScan(Directory root) {
 }
 
 String _extractVarName(String line) {
-  final match = RegExp(r'(?:const|let|var|final|String|val|def)\s+([A-Za-z0-9_$]+)\s*[:=]').firstMatch(line) ??
-      RegExp(r'''["']?([A-Za-z0-9_$-]+)["']?\s*[:=]''').firstMatch(line);
+  final match =
+      RegExp(r'(?:const|let|var|final|String|val|def)\s+([A-Za-z0-9_$]+)\s*[:=]')
+              .firstMatch(line) ??
+          RegExp(r'''["']?([A-Za-z0-9_$-]+)["']?\s*[:=]''').firstMatch(line);
   return match != null ? match.group(1)! : 'unnamed';
 }
 
 String _relativePath(String root, String file) {
   var normRoot = root.replaceAll('\\', '/');
-  if (normRoot.endsWith('/')) normRoot = normRoot.substring(0, normRoot.length - 1);
+  if (normRoot.endsWith('/')) {
+    normRoot = normRoot.substring(0, normRoot.length - 1);
+  }
   var normFile = file.replaceAll('\\', '/');
   if (normFile.startsWith('$normRoot/')) {
     return normFile.substring(normRoot.length + 1);
@@ -240,7 +274,8 @@ String? _parseArg(List<String> args, String prefix) {
   return null;
 }
 
-String _toJsonOutput(int fileCount, List<ScanFinding> confirmed, List<ScanFinding> warnings) {
+String _toJsonOutput(
+    int fileCount, List<ScanFinding> confirmed, List<ScanFinding> warnings) {
   final buffer = StringBuffer();
   buffer.writeln('{');
   buffer.writeln('  "filesScanned": $fileCount,');
@@ -259,4 +294,3 @@ String _toJsonOutput(int fileCount, List<ScanFinding> confirmed, List<ScanFindin
   buffer.writeln('}');
   return buffer.toString();
 }
-

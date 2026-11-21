@@ -23,9 +23,31 @@ double calculateShannonEntropy(String str) {
   return entropy;
 }
 
-bool isHexString(String str) => RegExp(r'^[0-9a-fA-F]+$').hasMatch(str);
+final RegExp _hex = RegExp(r'^[0-9a-fA-F]+$');
+final RegExp _base64 = RegExp(r'^[0-9a-zA-Z+/=_-]+$');
+final RegExp _digitsOnly = RegExp(r'^[0-9]+$');
+final RegExp _lowerWord = RegExp(r'^[a-z]+$');
+final RegExp _uuid = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false);
+// Source identifiers: camelCase / PascalCase words (each capital followed by
+// 2+ lowercase letters, optional short numeric suffix) and snake_case names.
+final RegExp _camelIdentifier =
+    RegExp(r'^[a-z]*(?:[A-Z][a-z]{2,})+[0-9]{0,4}$');
+final RegExp _snakeIdentifier =
+    RegExp(r'^(?:[a-z]+(?:_[a-z0-9]+)+|[A-Z]+(?:_[A-Z0-9]+)+)$');
+final RegExp _secretKeywordContext = RegExp(
+  r'(?:secret|api[_-]?key|token|auth|password|pwd|credential|private[_-]?key)\s*[:=]',
+  caseSensitive: false,
+);
+final RegExp _tokenCandidate = RegExp(r'\b[A-Za-z0-9_=-]{16,}\b');
+final RegExp _edgeSeparators = RegExp(r'^[_=-]+|[_=-]+$');
+final RegExp _dataUrlContext =
+    RegExp(r'data:image\/[a-zA-Z+]+;base64,$', caseSensitive: false);
 
-bool isBase64String(String str) => RegExp(r'^[0-9a-zA-Z+/=_-]+$').hasMatch(str);
+bool isHexString(String str) => _hex.hasMatch(str);
+
+bool isBase64String(String str) => _base64.hasMatch(str);
 
 /// Determines whether a candidate token qualifies as a high-entropy secret.
 bool isHighEntropyToken(
@@ -37,23 +59,26 @@ bool isHighEntropyToken(
   if (token.length < minLength) return false;
 
   // Filter out purely numeric strings
-  if (RegExp(r'^[0-9]+$').hasMatch(token)) return false;
+  if (_digitsOnly.hasMatch(token)) return false;
 
   // Filter out simple lowercase single words
-  if (RegExp(r'^[a-z]+$').hasMatch(token)) return false;
+  if (_lowerWord.hasMatch(token)) return false;
 
-  // Filter out standard UUIDs
-  if (RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false).hasMatch(token)) {
+  // Filter out source identifiers (class, variable and package names)
+  if (_camelIdentifier.hasMatch(token) || _snakeIdentifier.hasMatch(token)) {
     return false;
   }
 
+  // Filter out standard UUIDs
+  if (_uuid.hasMatch(token)) return false;
+
   // Reject exact-length hex digests in isolation (SHA-1, SHA-256, MD5) unless preceded by secret keywords
-  if (isHexString(token) && (token.length == 32 || token.length == 40 || token.length == 64 || token.length == 128)) {
-    final hasSecretKeyword = RegExp(
-      r'(?:secret|api[_-]?key|token|auth|password|pwd|credential|private[_-]?key)\s*[:=]',
-      caseSensitive: false,
-    ).hasMatch(contextPrefix);
-    if (!hasSecretKeyword) {
+  if (isHexString(token) &&
+      (token.length == 32 ||
+          token.length == 40 ||
+          token.length == 64 ||
+          token.length == 128)) {
+    if (!_secretKeywordContext.hasMatch(contextPrefix)) {
       return false;
     }
   }
@@ -96,11 +121,9 @@ List<EntropyMatch> scanHighEntropyTokens(
   double? threshold,
 }) {
   final matches = <EntropyMatch>[];
-  final tokenRegex = RegExp(r'\b[A-Za-z0-9_=-]{16,}\b');
-
-  for (final match in tokenRegex.allMatches(text)) {
+  for (final match in _tokenCandidate.allMatches(text)) {
     final rawMatch = match.group(0)!;
-    final token = rawMatch.replaceAll(RegExp(r'^[_=-]+|[_=-]+$'), '');
+    final token = rawMatch.replaceAll(_edgeSeparators, '');
     final startOffset = rawMatch.indexOf(token);
     final start = match.start + (startOffset >= 0 ? startOffset : 0);
     final end = start + token.length;
@@ -109,14 +132,17 @@ List<EntropyMatch> scanHighEntropyTokens(
     final contextPrefix = text.substring(prefixStart, start);
 
     // Skip data:image/ or base64 data URLs
-    if (RegExp(r'data:image\/[a-zA-Z+]+;base64,$', caseSensitive: false).hasMatch(contextPrefix)) {
+    if (_dataUrlContext.hasMatch(contextPrefix)) {
       continue;
     }
 
     if (token.length >= minLength &&
-        isHighEntropyToken(token, threshold: threshold, minLength: minLength, contextPrefix: contextPrefix)) {
+        isHighEntropyToken(token,
+            threshold: threshold,
+            minLength: minLength,
+            contextPrefix: contextPrefix)) {
       final entropy = calculateShannonEntropy(token);
-      matches.pushOrAdd(
+      matches.add(
         EntropyMatch(
           start: start,
           end: end,
@@ -129,8 +155,3 @@ List<EntropyMatch> scanHighEntropyTokens(
 
   return matches;
 }
-
-extension _ListHelper on List<EntropyMatch> {
-  void pushOrAdd(EntropyMatch item) => add(item);
-}
-

@@ -1,5 +1,5 @@
 /// Core types, enums, and events for VibeShield.
-library vibeshield.types;
+library;
 
 /// Equivalent to Flutter's kDebugMode in pure Dart / Flutter environments.
 /// In release mode (`dart.vm.product == true`), this evaluates to a compile-time false,
@@ -26,7 +26,8 @@ enum MaskMode {
 
   /// Parses a string into MaskMode (case-insensitive).
   /// Accepts: 'off', 'none', 'half', 'partial', 'preview', 'full', 'strict'.
-  static MaskMode fromString(String? value, {MaskMode fallback = MaskMode.partial}) {
+  static MaskMode fromString(String? value,
+      {MaskMode fallback = MaskMode.partial}) {
     if (value == null) return fallback;
     switch (value.trim().toLowerCase()) {
       case 'off':
@@ -44,9 +45,21 @@ enum MaskMode {
     }
   }
 
-  /// Resolves MaskMode from a compile-time `--dart-define=KEY=value` flag.
+  /// Resolves MaskMode from the compile-time `--dart-define=VIBESHIELD_MODE=value` flag.
   /// Example: `flutter run --dart-define=VIBESHIELD_MODE=full`
-  static MaskMode fromEnvironment(String key, {MaskMode fallback = MaskMode.partial}) {
+  ///
+  /// Only the key `'VIBESHIELD_MODE'` is supported: Dart can only read
+  /// `--dart-define` values with a constant key on AOT and web builds.
+  /// Other keys trigger an assertion in debug builds and return [fallback].
+  /// For a custom key, read it yourself:
+  /// `MaskMode.fromString(const String.fromEnvironment('MY_KEY'))`.
+  static MaskMode fromEnvironment(String key,
+      {MaskMode fallback = MaskMode.partial}) {
+    assert(
+      key == 'VIBESHIELD_MODE',
+      "MaskMode.fromEnvironment only supports 'VIBESHIELD_MODE' (got '$key'). "
+      "Use MaskMode.fromString(const String.fromEnvironment('$key')) instead.",
+    );
     const definedValue = String.fromEnvironment('VIBESHIELD_MODE');
     if (definedValue.isNotEmpty && key == 'VIBESHIELD_MODE') {
       return fromString(definedValue, fallback: fallback);
