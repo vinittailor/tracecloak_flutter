@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/vinittailor/tracecloak_flutter/main/assets/TraceCloak_logo.png" alt="TraceCloak" width="100%" />
+</p>
+
 # tracecloak
 
 [![Pub Version](https://img.shields.io/pub/v/tracecloak.svg)](https://pub.dev/packages/tracecloak)
