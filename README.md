@@ -1,20 +1,16 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/vinittailor/vibeshield_flutter/main/assets/VibeShield_logo.png" alt="VibeShield Banner" width="100%" />
-</p>
+# tracecloak
 
-# vibeshield_flutter
-
-[![Pub Version](https://img.shields.io/pub/v/vibeshield_flutter.svg)](https://pub.dev/packages/vibeshield_flutter)
+[![Pub Version](https://img.shields.io/pub/v/tracecloak.svg)](https://pub.dev/packages/tracecloak)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Dart SDK](https://img.shields.io/badge/Dart-3.0+-blue.svg)](https://dart.dev)
-[![Platforms](https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Web%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux-green.svg)](https://pub.dev/packages/vibeshield_flutter)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/vinittailor/vibeshield_flutter)
+[![Platforms](https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Web%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux-green.svg)](https://pub.dev/packages/tracecloak)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/vinittailor/tracecloak_flutter)
 
 > **Flutter & Dart secret redaction — pure Dart, zero custody, and no zone or log output in release builds by default. Masks API keys, tokens and passwords in `print()` output, structured logs, Dio HTTP logs, crash reports and AI prompts.**
 
 ---
 
-## Why VibeShield Flutter?
+## Why TraceCloak Flutter?
 
 Every Flutter developer accidentally prints credentials during debugging: Stripe secret keys, Firebase tokens, JWTs, AWS credentials, or database URLs. These strings leak into:
 
@@ -30,7 +26,7 @@ Every Flutter developer accidentally prints credentials during debugging: Stripe
 | Metric | Specification | Details |
 | :--- | :--- | :--- |
 | **Language** | 100% Pure Dart | No native Android or iOS code. Depends on `dio` for the interceptor. |
-| **Release builds** | No zone, no log output | With `enableInRelease: false` (default) `VibeShield.run()` calls your `body()` directly and structured logs are skipped. Explicit `redact()` / `aiSafe()` calls keep working. |
+| **Release builds** | No zone, no log output | With `enableInRelease: false` (default) `TraceCloak.run()` calls your `body()` directly and structured logs are skipped. Explicit `redact()` / `aiSafe()` calls keep working. |
 | **Platform Support** | Multiplatform | Android, iOS, Flutter Web, macOS, Windows, Linux, and Dart CLI. `protectFromAi()` uses `dart:io` and does not work on Web. |
 | **Security Standards** | CWE-798 & CWE-532 | Mapped to MITRE weaknesses for hard-coded credentials and sensitive data in log files. |
 
@@ -62,17 +58,17 @@ Every Flutter developer accidentally prints credentials during debugging: Stripe
 
 ```yaml
 dependencies:
-  vibeshield_flutter: ^0.1.0
+  tracecloak: ^0.1.0
 ```
 
 ### 2. Wrap `runApp()` in `main()`
 
 ```dart
 import 'package:flutter/material.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
-  VibeShield.run(() => runApp(const MyApp()));
+  TraceCloak.run(() => runApp(const MyApp()));
 }
 ```
 
@@ -80,13 +76,13 @@ Now every `print(...)` that runs inside that zone — your code, packages, async
 
 ```dart
 // Your regular print statement:
-print('Calling Stripe API with: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+print('Calling Stripe API with: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
 
 // What appears in your IDE terminal:
 // Calling Stripe API with: sk_live_****7890
 ```
 
-> `VibeShield.install(...)` only stores settings (mode, exact secrets, listener). It does **not** intercept `print()`; only `VibeShield.run()` does.
+> `TraceCloak.install(...)` only stores settings (mode, exact secrets, listener). It does **not** intercept `print()`; only `TraceCloak.run()` does.
 
 ---
 
@@ -94,14 +90,14 @@ print('Calling Stripe API with: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // 
 
 | Output path | Masked? |
 | :--- | :--- |
-| `print()` inside `VibeShield.run()` (incl. `async`, `Future`, `Timer`, microtasks) | ✅ |
-| `VibeShield.info/warn/error/debug/print`, `VibeShield.log(...).send()` | ✅ |
-| Dio request/response/error logs via `VibeShieldDioInterceptor` | ✅ |
-| Flutter `debugPrint` | ✅ after `debugPrint = VibeShield.wrapDebugPrint(debugPrint);` |
+| `print()` inside `TraceCloak.run()` (incl. `async`, `Future`, `Timer`, microtasks) | ✅ |
+| `TraceCloak.info/warn/error/debug/print`, `TraceCloak.log(...).send()` | ✅ |
+| Dio request/response/error logs via `TraceCloakDioInterceptor` | ✅ |
+| Flutter `debugPrint` | ✅ after `debugPrint = TraceCloak.wrapDebugPrint(debugPrint);` |
 | Uncaught errors in the zone | ✅ passed on as `RedactedError` |
 | `stdout.write` / `stderr.write`, `dart:developer` `log()` | ❌ not routed through zones |
-| Code running in another isolate (`Isolate.run`, `compute`) | ❌ wrap the isolate's entry point in `VibeShield.run` |
-| Errors thrown before `VibeShield.run()` is called | ❌ |
+| Code running in another isolate (`Isolate.run`, `compute`) | ❌ wrap the isolate's entry point in `TraceCloak.run` |
+| Errors thrown before `TraceCloak.run()` is called | ❌ |
 
 ---
 
@@ -117,19 +113,19 @@ print('Calling Stripe API with: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // 
 
 ```dart
 // Set globally at startup
-VibeShield.run(
+TraceCloak.run(
   () => runApp(const MyApp()),
   mode: MaskMode.full,
 );
 
 // Or change dynamically at runtime
-VibeShield.setMode(MaskMode.full);
+TraceCloak.setMode(MaskMode.full);
 
 // Cycle through: off -> partial -> full -> off
-final newMode = VibeShield.cycleMode();
+final newMode = TraceCloak.cycleMode();
 
-// From a build flag: flutter run --dart-define=VIBESHIELD_MODE=full
-VibeShield.setMode(MaskMode.fromEnvironment('VIBESHIELD_MODE'));
+// From a build flag: flutter run --dart-define=TRACECLOAK_MODE=full
+TraceCloak.setMode(MaskMode.fromEnvironment('TRACECLOAK_MODE'));
 ```
 
 ---
@@ -138,7 +134,7 @@ VibeShield.setMode(MaskMode.fromEnvironment('VIBESHIELD_MODE'));
 
 ```dart
 void main() {
-  VibeShield.run(
+  TraceCloak.run(
     () => runApp(const MyApp()),
     exactSecrets: [myEnvSecret],
     enableInRelease: false, // Default
@@ -148,7 +144,7 @@ void main() {
 
 ### How it works
 - In **debug/profile builds** (`kDebugMode == true`), `run()` creates a Dart Zone that redacts every `print()`.
-- In **release builds** (`dart.vm.product == true`) with `enableInRelease: false`, `run()` calls `body()` directly: no zone, and `VibeShield.print`/`info`/... produce no output.
+- In **release builds** (`dart.vm.product == true`) with `enableInRelease: false`, `run()` calls `body()` directly: no zone, and `TraceCloak.print`/`info`/... produce no output.
 - `mode`, `exactSecrets` and `onRedactionEvent` are applied **in every build mode**, so explicit `redact()`, `sanitize()` and `aiSafe()` calls (e.g. scrubbing an LLM prompt in production) still mask your registered secrets.
 - Pass `enableInRelease: true` to keep the zone and structured log output in release builds.
 
@@ -157,10 +153,10 @@ void main() {
 ## Structured Logging
 
 ```dart
-VibeShield.info('User signed in', metadata: {'userId': 42, 'password': 'hunter2'});
+TraceCloak.info('User signed in', metadata: {'userId': 42, 'password': 'hunter2'});
 // [INFO] User signed in | metadata: {userId: 42, password: ****}
 
-VibeShield.log('Checkout', LogLevel.warn).tag('BILLING').data({'card': cardObject}).send();
+TraceCloak.log('Checkout', LogLevel.warn).tag('BILLING').data({'card': cardObject}).send();
 // [WARN] [BILLING] Checkout | metadata: {card: <cardObject.toString(), redacted>}
 ```
 
@@ -174,19 +170,19 @@ Metadata is sanitised recursively:
 
 ## Dio Network Interceptor
 
-`VibeShieldDioInterceptor` sanitizes the **logged copy** of each request while **keeping the real HTTP request untouched**:
+`TraceCloakDioInterceptor` sanitizes the **logged copy** of each request while **keeping the real HTTP request untouched**:
 
 ```dart
 import 'package:dio/dio.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 final dio = Dio();
 
-// Add VibeShield interceptor in ONE line
-dio.interceptors.add(VibeShield.dioInterceptor());
+// Add TraceCloak interceptor in ONE line
+dio.interceptors.add(TraceCloak.dioInterceptor());
 
 // Or configure with custom options
-dio.interceptors.add(VibeShieldDioInterceptor(
+dio.interceptors.add(TraceCloakDioInterceptor(
   overrideMode: MaskMode.partial,
   enableInRelease: false, // Default: no logging in release builds
   logRequests: true,
@@ -210,7 +206,7 @@ Uncaught errors are wrapped in a `RedactedError`: its `toString()`/`message` are
 
 ```dart
 void main() {
-  VibeShield.run(
+  TraceCloak.run(
     () => runApp(const MyApp()),
     onError: (error, stackTrace) {
       // error is a RedactedError; error.toString() and stackTrace are redacted.
@@ -230,8 +226,8 @@ try {
   await authService.login();
 } catch (e, stack) {
   // Returns sanitized (String error, StackTrace? stackTrace)
-  final (safeErr, safeStack) = VibeShield.sanitizeError(e, stack);
-  VibeShield.error('Authentication failed: $safeErr', stackTrace: safeStack);
+  final (safeErr, safeStack) = TraceCloak.sanitizeError(e, stack);
+  TraceCloak.error('Authentication failed: $safeErr', stackTrace: safeStack);
 }
 ```
 
@@ -239,8 +235,8 @@ try {
 
 ```dart
 void main() {
-  debugPrint = VibeShield.wrapDebugPrint(debugPrint);
-  VibeShield.run(() => runApp(const MyApp()));
+  debugPrint = TraceCloak.wrapDebugPrint(debugPrint);
+  TraceCloak.run(() => runApp(const MyApp()));
 }
 ```
 
@@ -260,9 +256,9 @@ void main() {
 ### 1. `SecureKey` AI-Proof Wrapper
 
 ```dart
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
-final stripeKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+final stripeKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
 ```
 
 - **Safe String Interpolation:** `print('Config: $stripeKey');` prints `Config: sk_live_****7890`.
@@ -275,23 +271,23 @@ final stripeKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vib
 ### 2. AI Prompt Sanitization
 
 ```dart
-final rawContext = 'Error with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // vibeshield-ignore
+final rawContext = 'Error with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // tracecloak-ignore
 
 // Shape-preserving zero-overlap mask
 final safePrompt = rawContext.aiSafe;
 await geminiClient.prompt(safePrompt);
 
 // Structured data (maps, lists, objects)
-final safeData = VibeShield.aiSafe(debugStateMap);
+final safeData = TraceCloak.aiSafe(debugStateMap);
 ```
 
 ### 3. Project AI-Ignore Files
 
 ```bash
-dart run vibeshield --shield-ai
+dart run tracecloak --shield-ai
 ```
 
-Creates the files below, or refreshes the VibeShield-managed block inside them (your own lines are left alone):
+Creates the files below, or refreshes the TraceCloak-managed block inside them (your own lines are left alone):
 
 | File | Read by |
 | :--- | :--- |
@@ -308,24 +304,24 @@ Shielded patterns: `.env`, `.env.*`, `*.env`, `*.properties` (incl. `key.propert
 
 ```bash
 # Scan current project
-dart run vibeshield
+dart run tracecloak
 
 # Scan specific directory
-dart run vibeshield --path=lib
+dart run tracecloak --path=lib
 
 # Output JSON for CI/CD pipelines
-dart run vibeshield --json
+dart run tracecloak --json
 
 # Also fail on entropy warnings
-dart run vibeshield --fail-on-warning
+dart run tracecloak --fail-on-warning
 ```
 
-Scans `.dart`, `.yaml`, `.yml`, `.json`, `.properties`, `.env`, `.gradle`, `.xml` and `.plist` files. Lines containing `vibeshield-ignore` are skipped. Only provider-specific rules are reported as confirmed leaks; the keyword/URL heuristics used for log redaction are not, because in source code they mostly match variable references.
+Scans `.dart`, `.yaml`, `.yml`, `.json`, `.properties`, `.env`, `.gradle`, `.xml` and `.plist` files. Lines containing `tracecloak-ignore` are skipped. Only provider-specific rules are reported as confirmed leaks; the keyword/URL heuristics used for log redaction are not, because in source code they mostly match variable references.
 
 ### Sample Output
 ```text
 ======================================================================
-      🛡️  VIBESHIELD FLUTTER & DART STATIC SECURITY SCANNER  🛡️
+      🛡️  TRACECLOAK FLUTTER & DART STATIC SECURITY SCANNER  🛡️
 ======================================================================
 Scanning directory: /project/lib
 
@@ -342,7 +338,7 @@ Summary:
   Entropy Warnings:    0
 ----------------------------------------------------------------------
 
-❌ VIBESHIELD SCAN FAILED: Hardcoded credentials must be resolved before deployment.
+❌ TRACECLOAK SCAN FAILED: Hardcoded credentials must be resolved before deployment.
 ```
 *Exits with code `1` when confirmed secrets are found (or warnings, with `--fail-on-warning`), in both text and `--json` mode.*
 
@@ -355,7 +351,7 @@ Summary:
 ```dart
 final response = await dio.post('/api/auth/login', data: credentials);
 
-// Even if you or a 3rd-party package prints this inside VibeShield.run():
+// Even if you or a 3rd-party package prints this inside TraceCloak.run():
 print('User logged in successfully: ${response.data}');
 
 // Terminal displays:
@@ -369,9 +365,9 @@ await flutterSecureStorage.write(key: 'jwt', value: userToken);
 ### Scenario 2: Stripe SDK & Payment Gateway
 
 ```dart
-final secretKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+final secretKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
 
-VibeShield.log('Initializing payment intent', LogLevel.info)
+TraceCloak.log('Initializing payment intent', LogLevel.info)
     .data({'customer': 'cus_123', 'key': secretKey})
     .send();
 // [INFO] Initializing payment intent | metadata: {customer: cus_123, key: sk_live_****7890}
@@ -385,7 +381,7 @@ final paymentIntent = await stripeApi.createIntent(
 ### Scenario 3: Non-Custodial Crashlytics & Sentry
 
 ```dart
-VibeShield.onRedacted = (RedactionEvent event) {
+TraceCloak.onRedacted = (RedactionEvent event) {
   // event carries only the rule name, category and masked preview.
   FirebaseCrashlytics.instance.log(
     'Secret Redacted: ${event.ruleName} in category ${event.category}',
@@ -410,23 +406,23 @@ jobs:
           channel: 'stable'
       - name: Install dependencies
         run: flutter pub get
-      - name: Run VibeShield Static Audit
-        run: dart run vibeshield --path=lib
+      - name: Run TraceCloak Static Audit
+        run: dart run tracecloak --path=lib
 ```
 
 ---
 
 ## Testing your app
 
-VibeShield keeps global state (mode, exact secrets, custom rules, printer, listener). Reset it between tests and capture output with `customPrinter`:
+TraceCloak keeps global state (mode, exact secrets, custom rules, printer, listener). Reset it between tests and capture output with `customPrinter`:
 
 ```dart
-setUp(VibeShield.reset);
+setUp(TraceCloak.reset);
 
 test('logs are masked', () {
   final lines = <String>[];
-  VibeShield.customPrinter = lines.add;
-  VibeShield.info('key sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+  TraceCloak.customPrinter = lines.add;
+  TraceCloak.info('key sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
   expect(lines.single, contains('sk_live_****7890'));
 });
 ```
@@ -435,7 +431,7 @@ test('logs are masked', () {
 
 ## Complete API Reference & Parameters
 
-### `VibeShield.run<R>(body, {...})`
+### `TraceCloak.run<R>(body, {...})`
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
@@ -446,7 +442,7 @@ test('logs are masked', () {
 | `onRedactionEvent` | `Function(RedactionEvent)?` | `null` | Non-custodial callback for each redaction. |
 | `onError` | `Function(Object, StackTrace)?` | `null` | Receives uncaught errors as `RedactedError` with a redacted stack trace. |
 
-### Other `VibeShield` members
+### Other `TraceCloak` members
 
 | Member | Description |
 | :--- | :--- |
@@ -461,14 +457,14 @@ test('logs are masked', () {
 | `setMode`, `cycleMode`, `mode`, `isOff/isPartial/isFull` | Mode control. |
 | `install({...})` | Stores settings only; does not intercept `print()`. |
 | `reset()` | Restores all global state (for tests). |
-| `customPrinter` | Redirects VibeShield output (e.g. to a test list or a logger). |
+| `customPrinter` | Redirects TraceCloak output (e.g. to a test list or a logger). |
 | `onRedacted` | Audit hook; receives `RedactionEvent`s. |
 
-### `VibeShieldDioInterceptor({...})`
+### `TraceCloakDioInterceptor({...})`
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `overrideMode` | `MaskMode?` | `null` | Mode for Dio logs. Defaults to the global `VibeShield.mode`. |
+| `overrideMode` | `MaskMode?` | `null` | Mode for Dio logs. Defaults to the global `TraceCloak.mode`. |
 | `enableInRelease` | `bool` | `false` | `false`: calls `handler.next()` without logging in release builds. |
 | `logRequests` | `bool` | `true` | Log outgoing requests (method, URI, headers, query, body). |
 | `logResponses` | `bool` | `true` | Log responses (status, URI, body). |

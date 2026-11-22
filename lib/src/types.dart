@@ -1,4 +1,4 @@
-/// Core types, enums, and events for VibeShield.
+/// Core types, enums, and events for TraceCloak.
 library;
 
 /// Equivalent to Flutter's kDebugMode in pure Dart / Flutter environments.
@@ -6,7 +6,7 @@ library;
 /// enabling Dart's AOT compiler to tree-shake out all code inside `if (kDebugMode)`.
 const bool kDebugMode = !bool.fromEnvironment('dart.vm.product');
 
-/// Secret masking mode enum used across VibeShield:
+/// Secret masking mode enum used across TraceCloak:
 /// - [off]: No redaction (raw secret string displayed).
 /// - [partial]: Half mask / preview mode (e.g. `sk_live_****7890`).
 /// - [full]: Full shape-preserving mask guaranteeing 0% character overlap (`aa_aaaa_00aa...`).
@@ -45,10 +45,10 @@ enum MaskMode {
     }
   }
 
-  /// Resolves MaskMode from the compile-time `--dart-define=VIBESHIELD_MODE=value` flag.
-  /// Example: `flutter run --dart-define=VIBESHIELD_MODE=full`
+  /// Resolves MaskMode from the compile-time `--dart-define=TRACECLOAK_MODE=value` flag.
+  /// Example: `flutter run --dart-define=TRACECLOAK_MODE=full`
   ///
-  /// Only the key `'VIBESHIELD_MODE'` is supported: Dart can only read
+  /// Only the key `'TRACECLOAK_MODE'` is supported: Dart can only read
   /// `--dart-define` values with a constant key on AOT and web builds.
   /// Other keys trigger an assertion in debug builds and return [fallback].
   /// For a custom key, read it yourself:
@@ -56,12 +56,12 @@ enum MaskMode {
   static MaskMode fromEnvironment(String key,
       {MaskMode fallback = MaskMode.partial}) {
     assert(
-      key == 'VIBESHIELD_MODE',
-      "MaskMode.fromEnvironment only supports 'VIBESHIELD_MODE' (got '$key'). "
+      key == 'TRACECLOAK_MODE',
+      "MaskMode.fromEnvironment only supports 'TRACECLOAK_MODE' (got '$key'). "
       "Use MaskMode.fromString(const String.fromEnvironment('$key')) instead.",
     );
-    const definedValue = String.fromEnvironment('VIBESHIELD_MODE');
-    if (definedValue.isNotEmpty && key == 'VIBESHIELD_MODE') {
+    const definedValue = String.fromEnvironment('TRACECLOAK_MODE');
+    if (definedValue.isNotEmpty && key == 'TRACECLOAK_MODE') {
       return fromString(definedValue, fallback: fallback);
     }
     return fallback;

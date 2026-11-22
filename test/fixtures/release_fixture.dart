@@ -4,19 +4,19 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
   final out = <String>[];
-  VibeShield.customPrinter = out.add;
+  TraceCloak.customPrinter = out.add;
 
   // App registers its .env secret once, then scrubs an LLM prompt in production.
-  VibeShield.run(() {}, exactSecrets: ['MyExactSecretValue99']);
+  TraceCloak.run(() {}, exactSecrets: ['MyExactSecretValue99']);
   stdout.writeln('KDEBUG:$kDebugMode');
   stdout.writeln('AISAFE:${'prompt MyExactSecretValue99 end'.aiSafe}');
 
   // Interceptor explicitly enabled for release must still log.
-  VibeShield.dioInterceptor(enableInRelease: true).onRequest(
+  TraceCloak.dioInterceptor(enableInRelease: true).onRequest(
       RequestOptions(path: 'https://api.example.com/x'),
       RequestInterceptorHandler());
   stdout.writeln('DIOLINES:${out.length}');

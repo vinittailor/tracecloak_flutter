@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 import 'log_output.dart';
-import 'vibeshield.dart';
+import 'tracecloak.dart';
 
 /// Plug-and-play Dio interceptor that automatically scrubs sensitive credentials
 /// from HTTP request headers, query parameters, request bodies, and responses in logs.
@@ -11,11 +11,11 @@ import 'vibeshield.dart';
 /// Usage:
 /// ```dart
 /// final dio = Dio();
-/// dio.interceptors.add(VibeShieldDioInterceptor());
+/// dio.interceptors.add(TraceCloakDioInterceptor());
 /// ```
-class VibeShieldDioInterceptor extends Interceptor {
+class TraceCloakDioInterceptor extends Interceptor {
   /// Explicit masking mode for this interceptor.
-  /// When null, defaults to the globally active [VibeShield.mode].
+  /// When null, defaults to the globally active [TraceCloak.mode].
   final MaskMode? overrideMode;
 
   /// Whether to run this interceptor in release builds (`--release`).
@@ -31,14 +31,14 @@ class VibeShieldDioInterceptor extends Interceptor {
   /// Whether to log Dio HTTP errors and stack traces with sanitized output.
   final bool logErrors;
 
-  /// Creates a new [VibeShieldDioInterceptor] with configurable logging options.
+  /// Creates a new [TraceCloakDioInterceptor] with configurable logging options.
   ///
   /// * [overrideMode]: Optional mode override ([MaskMode.partial], [MaskMode.full], or [MaskMode.off]).
   /// * [enableInRelease]: Set to true only if you explicitly want network logs in production. Default is `false`.
   /// * [logRequests]: Enable/disable logging outgoing requests. Default is `true`.
   /// * [logResponses]: Enable/disable logging incoming responses. Default is `true`.
   /// * [logErrors]: Enable/disable logging Dio exceptions. Default is `true`.
-  VibeShieldDioInterceptor({
+  TraceCloakDioInterceptor({
     this.overrideMode,
     this.enableInRelease = false,
     this.logRequests = true,

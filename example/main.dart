@@ -1,13 +1,13 @@
 import 'package:dio/dio.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
   print('========================================================');
-  print('    🛡️  UNIFIED VIBESHIELD FLUTTER / DART SDK DEMO  🛡️');
+  print('    🛡️  UNIFIED TRACECLOAK FLUTTER / DART SDK DEMO  🛡️');
   print('========================================================\n');
 
   // Hook for Sentry, Firebase Crashlytics, or internal telemetry (Zero raw custody)
-  VibeShield.onRedacted = (event) {
+  TraceCloak.onRedacted = (event) {
     print(
         '  [Audit Hook] Intercepted: ${event.ruleName} -> ${event.maskedPreview}');
   };
@@ -17,24 +17,24 @@ void main() {
   // ----------------------------------------------------------------------
   print('--- 1. Three Masking Modes (Off, Half/Partial, Full) ---');
   const sampleKey =
-      'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'; // vibeshield-ignore
+      'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'; // tracecloak-ignore
 
-  VibeShield.setMode(MaskMode.off);
+  TraceCloak.setMode(MaskMode.off);
   print(
-      '• Mode: OFF      -> ${VibeShield.redact("Key: $sampleKey")}'); // Raw unmasked
+      '• Mode: OFF      -> ${TraceCloak.redact("Key: $sampleKey")}'); // Raw unmasked
 
-  VibeShield.setMode(MaskMode.partial);
+  TraceCloak.setMode(MaskMode.partial);
   print(
-      '• Mode: HALF     -> ${VibeShield.redact("Key: $sampleKey")}'); // Prefix + suffix preview
+      '• Mode: HALF     -> ${TraceCloak.redact("Key: $sampleKey")}'); // Prefix + suffix preview
 
-  VibeShield.setMode(MaskMode.full);
+  TraceCloak.setMode(MaskMode.full);
   print(
-      '• Mode: FULL     -> ${VibeShield.redact("Key: $sampleKey")}'); // 0% overlap shape mask
+      '• Mode: FULL     -> ${TraceCloak.redact("Key: $sampleKey")}'); // 0% overlap shape mask
 
   // Cycling modes programmatically
-  final nextMode = VibeShield.cycleMode();
+  final nextMode = TraceCloak.cycleMode();
   print('• Cycled mode to -> $nextMode\n');
-  VibeShield.setMode(MaskMode.partial); // reset to partial default
+  TraceCloak.setMode(MaskMode.partial); // reset to partial default
 
   // ----------------------------------------------------------------------
   // 2. Direct Dio Plug-and-Play Network Interceptor
@@ -42,8 +42,8 @@ void main() {
   print('--- 2. Direct Plug-and-Play Dio Interceptor ---');
   final dio = Dio();
 
-  // Add VibeShield interceptor in ONE line!
-  dio.interceptors.add(VibeShield.dioInterceptor());
+  // Add TraceCloak interceptor in ONE line!
+  dio.interceptors.add(TraceCloak.dioInterceptor());
 
   // Simulate an outgoing request with secret headers and body payload:
   print('Simulating Dio HTTP Request with sensitive headers and payload:');
@@ -52,8 +52,8 @@ void main() {
     method: 'POST',
     headers: {
       'Authorization':
-          'Bearer sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
-      'X-Api-Key': 'AKIAIOSFODNN7EXAMPLE', // vibeshield-ignore
+          'Bearer sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // tracecloak-ignore
+      'X-Api-Key': 'AKIAIOSFODNN7EXAMPLE', // tracecloak-ignore
       'Content-Type': 'application/json',
     },
     queryParameters: {
@@ -62,22 +62,22 @@ void main() {
     data: {
       'customerEmail': 'dev@example.com',
       'cardSecret':
-          'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
+          'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // tracecloak-ignore
     },
   );
 
   // Run through interceptor:
-  VibeShield.dioInterceptor()
+  TraceCloak.dioInterceptor()
       .onRequest(reqOptions, RequestInterceptorHandler());
 
   // ----------------------------------------------------------------------
-  // 3. Zero-Friction Global Interception (VibeShield.run)
+  // 3. Zero-Friction Global Interception (TraceCloak.run)
   // ----------------------------------------------------------------------
-  print('\n--- 3. Zero-Friction Global Interception (VibeShield.run) ---');
-  VibeShield.run(() {
+  print('\n--- 3. Zero-Friction Global Interception (TraceCloak.run) ---');
+  TraceCloak.run(() {
     // Normal standard print() calls anywhere in your app:
     print(
-        'Standard print: Calling Stripe with sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+        'Standard print: Calling Stripe with sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
   });
 
   // ----------------------------------------------------------------------
@@ -86,7 +86,7 @@ void main() {
   print(
       '\n--- 4. Native Dart String Extensions (.halfMasked / .fullMasked) ---');
   const userToken =
-      'ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // vibeshield-ignore
+      'ghp_16C7e42F292c6912E7710c838347Ae178B4a'; // tracecloak-ignore
   print('Half mask (preview):    ${userToken.halfMasked}');
   print('Full mask (0% overlap): ${userToken.fullMasked}');
   print('Text redacted:          ${"Logged in with $userToken".redacted}');
@@ -95,9 +95,9 @@ void main() {
   // 5. Fluent Structured Logging with Metadata
   // ----------------------------------------------------------------------
   print('\n--- 5. Fluent Structured Logging with Metadata ---');
-  VibeShield.log('Payment processed', LogLevel.info).tag('BILLING').data({
+  TraceCloak.log('Payment processed', LogLevel.info).tag('BILLING').data({
     'amount': 99.00,
-    'secret': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // vibeshield-ignore
+    'secret': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890', // tracecloak-ignore
   }).send();
 
   print('\n========================================================');

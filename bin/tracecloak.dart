@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
-/// VibeShield CLI Scanner for Flutter & Dart projects.
+/// TraceCloak CLI Scanner for Flutter & Dart projects.
 ///
 /// Run from any Flutter or Dart project root:
 /// ```bash
-/// dart run vibeshield
+/// dart run tracecloak
 /// ```
 void main(List<String> args) {
   final targetPath = _parseArg(args, '--path') ?? '.';
@@ -20,8 +20,8 @@ void main(List<String> args) {
 
   // Check for --shield-ai flag to auto-generate AI protection ignore files
   if (args.contains('--shield-ai') || args.contains('--protect-ai')) {
-    final updated = VibeShield.protectFromAi(scanDir.path);
-    stdout.writeln('🛡️  VibeShield AI Shield activated!');
+    final updated = TraceCloak.protectFromAi(scanDir.path);
+    stdout.writeln('🛡️  TraceCloak AI Shield activated!');
     stdout.writeln(
         'Created/updated ${updated.length} AI-ignore file(s) to block AI tools:');
     for (final f in updated) {
@@ -39,7 +39,7 @@ void main(List<String> args) {
     stdout.writeln(
         '======================================================================');
     stdout.writeln(
-        '      🛡️  VIBESHIELD FLUTTER & DART STATIC SECURITY SCANNER  🛡️');
+        '      🛡️  TRACECLOAK FLUTTER & DART STATIC SECURITY SCANNER  🛡️');
     stdout.writeln(
         '======================================================================');
     stdout.writeln('Scanning directory: ${scanDir.absolute.path}\n');
@@ -56,8 +56,8 @@ void main(List<String> args) {
       for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         final line = lines[lineIdx];
 
-        // Respect inline ignore comments: // vibeshield-ignore or # vibeshield-ignore
-        if (line.toLowerCase().contains('vibeshield-ignore')) {
+        // Respect inline ignore comments: // tracecloak-ignore or # tracecloak-ignore
+        if (line.toLowerCase().contains('tracecloak-ignore')) {
           continue;
         }
 
@@ -77,7 +77,7 @@ void main(List<String> args) {
               cwe: rule.cwe,
               confidence: 'confirmed',
               maskedPreview:
-                  VibeShield.mask(raw, overrideMode: MaskMode.partial),
+                  TraceCloak.mask(raw, overrideMode: MaskMode.partial),
               variableName: _extractVarName(line),
             ));
           }
@@ -103,7 +103,7 @@ void main(List<String> args) {
               cwe: 'CWE-798',
               confidence: 'entropy',
               maskedPreview:
-                  VibeShield.mask(em.token, overrideMode: MaskMode.partial),
+                  TraceCloak.mask(em.token, overrideMode: MaskMode.partial),
               variableName: _extractVarName(line),
             ));
           }
@@ -160,7 +160,7 @@ void main(List<String> args) {
 
     if (failed) {
       stderr.writeln(
-          '\n❌ VIBESHIELD SCAN FAILED: Hardcoded credentials must be resolved before deployment.');
+          '\n❌ TRACECLOAK SCAN FAILED: Hardcoded credentials must be resolved before deployment.');
       exit(1);
     } else {
       stdout.writeln('\n✅ PASSED: No confirmed credentials found.');

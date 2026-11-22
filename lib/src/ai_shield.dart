@@ -1,5 +1,5 @@
 import 'ai_shield_stub.dart' if (dart.library.io) 'ai_shield_io.dart' as files;
-import 'vibeshield.dart';
+import 'tracecloak.dart';
 
 /// An AI-proof wrapper for sensitive credentials.
 ///
@@ -11,7 +11,7 @@ import 'vibeshield.dart';
 ///
 /// Example:
 /// ```dart
-/// final stripeKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // vibeshield-ignore
+/// final stripeKey = SecureKey('sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'); // tracecloak-ignore
 ///
 /// print('Key: $stripeKey'); // Prints: Key: sk_live_****7890 (Safe from AI context!)
 ///
@@ -30,7 +30,7 @@ class SecureKey {
 
   /// Safe masked representation (AI tools and loggers only see the mask!).
   @override
-  String toString() => VibeShield.mask(_raw, overrideMode: _maskMode);
+  String toString() => TraceCloak.mask(_raw, overrideMode: _maskMode);
 
   /// Safe JSON serialization.
   dynamic toJson() => toString();
@@ -43,7 +43,7 @@ class SecureKey {
 
 /// AI Shield file generator for Flutter & Dart projects.
 ///
-/// Creates and maintains a VibeShield-managed block in AI-ignore files so AI
+/// Creates and maintains a TraceCloak-managed block in AI-ignore files so AI
 /// coding tools that honour them do not index `.env` files, key stores and
 /// signing configs:
 /// - `.aiignore` — JetBrains AI Assistant (documented, gitignore syntax)
@@ -66,8 +66,8 @@ class AiShield {
   ];
 
   static const String _beginMarker =
-      '# --- VibeShield Managed AI-Ignore Rules ---';
-  static const String _endMarker = '# --- End VibeShield Managed Rules ---';
+      '# --- TraceCloak Managed AI-Ignore Rules ---';
+  static const String _endMarker = '# --- End TraceCloak Managed Rules ---';
 
   static const List<String> defaultShieldRules = [
     _beginMarker,
@@ -91,7 +91,7 @@ class AiShield {
   ];
 
   /// Creates the AI-ignore files in [rootPath] (defaults to the current
-  /// directory), or refreshes the VibeShield-managed block inside existing ones.
+  /// directory), or refreshes the TraceCloak-managed block inside existing ones.
   /// Lines outside the managed block are never changed.
   /// Returns the names of files that were created or modified.
   /// Throws [UnsupportedError] on the web (no `dart:io`).

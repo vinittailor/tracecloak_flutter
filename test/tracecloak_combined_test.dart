@@ -1,10 +1,10 @@
 import 'package:test/test.dart';
 import 'package:dio/dio.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
-  group('Unified VibeShield Combined Approach Tests', () {
-    setUp(VibeShield.reset);
+  group('Unified TraceCloak Combined Approach Tests', () {
+    setUp(TraceCloak.reset);
 
     test(
         '1. Extension Methods on String (apiKey.masked, .fullMasked, .redacted)',
@@ -25,27 +25,27 @@ void main() {
           logMessage.redacted.contains('51Hc29KJ8f3ks9fQ2ABCDEF12'), isFalse);
     });
 
-    test('2. Global Zone Interception (VibeShield.run)', () {
+    test('2. Global Zone Interception (TraceCloak.run)', () {
       final captured = <String>[];
-      VibeShield.customPrinter = (msg) => captured.add(msg);
+      TraceCloak.customPrinter = (msg) => captured.add(msg);
 
-      VibeShield.run(() {
-        // Standard print with zero VibeShield references inside the block:
+      TraceCloak.run(() {
+        // Standard print with zero TraceCloak references inside the block:
         print('Raw log with key: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890');
       });
 
       expect(captured.length, equals(1));
       expect(captured[0].contains('sk_live_****7890'), isTrue);
       expect(captured[0].contains('51Hc29KJ8f3ks9fQ2ABCDEF12'), isFalse);
-      VibeShield.customPrinter = null;
+      TraceCloak.customPrinter = null;
     });
 
     test('3. Fluent Structured Logging with Metadata (.data().tag().send())',
         () {
       final captured = <String>[];
-      VibeShield.customPrinter = (msg) => captured.add(msg);
+      TraceCloak.customPrinter = (msg) => captured.add(msg);
 
-      VibeShield.log('User completed checkout', LogLevel.info)
+      TraceCloak.log('User completed checkout', LogLevel.info)
           .tag('BILLING')
           .data({
         'userId': 99,
@@ -62,10 +62,10 @@ void main() {
       expect(out.contains('AKIA****MPLE'), isTrue);
       expect(out.contains('51Hc29KJ8f3ks9fQ2'), isFalse);
       expect(out.contains('IOSFODNN7EXA'), isFalse);
-      VibeShield.customPrinter = null;
+      TraceCloak.customPrinter = null;
     });
 
-    test('4. HTTP & Network Header Scrubbing (VibeShield.sanitizeHeaders)', () {
+    test('4. HTTP & Network Header Scrubbing (TraceCloak.sanitizeHeaders)', () {
       final headers = {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890',
@@ -73,7 +73,7 @@ void main() {
         'User-Agent': 'FlutterApp/1.0',
       };
 
-      final sanitized = VibeShield.sanitizeHeaders(headers);
+      final sanitized = TraceCloak.sanitizeHeaders(headers);
 
       expect(sanitized['Content-Type'], equals('application/json'));
       expect(sanitized['User-Agent'], equals('FlutterApp/1.0'));
@@ -89,7 +89,7 @@ void main() {
     });
 
     test(
-        '5. Backward Compatibility: SecureLog alias works identical to VibeShield',
+        '5. Backward Compatibility: SecureLog alias works identical to TraceCloak',
         () {
       expect(SecureLog.mask('sk_live_51Hc29KJ8f3ks9fQ2'),
           equals('sk_live_****9fQ2'));
@@ -100,40 +100,40 @@ void main() {
       const secret = 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890';
 
       // Mode: OFF
-      VibeShield.setMode(MaskMode.off);
-      expect(VibeShield.isOff, isTrue);
-      expect(VibeShield.redact('Key: $secret'), equals('Key: $secret'));
+      TraceCloak.setMode(MaskMode.off);
+      expect(TraceCloak.isOff, isTrue);
+      expect(TraceCloak.redact('Key: $secret'), equals('Key: $secret'));
 
       // Mode: HALF / PARTIAL
-      VibeShield.setMode(MaskMode.partial);
-      expect(VibeShield.isPartial, isTrue);
-      expect(VibeShield.redact('Key: $secret'), contains('sk_live_****7890'));
+      TraceCloak.setMode(MaskMode.partial);
+      expect(TraceCloak.isPartial, isTrue);
+      expect(TraceCloak.redact('Key: $secret'), contains('sk_live_****7890'));
       expect(secret.halfMasked, contains('sk_live_****7890'));
 
       // Mode: FULL (Shape-preserving, 0% overlap)
-      VibeShield.setMode(MaskMode.full);
-      expect(VibeShield.isFull, isTrue);
-      final full = VibeShield.redact('Key: $secret');
+      TraceCloak.setMode(MaskMode.full);
+      expect(TraceCloak.isFull, isTrue);
+      final full = TraceCloak.redact('Key: $secret');
       expect(full.contains('sk_live'), isFalse);
       expect(full.contains('aa_aaaa'), isTrue);
 
       // cycleMode: full -> off -> partial -> full
-      expect(VibeShield.cycleMode(), equals(MaskMode.off));
-      expect(VibeShield.cycleMode(), equals(MaskMode.partial));
-      expect(VibeShield.cycleMode(), equals(MaskMode.full));
+      expect(TraceCloak.cycleMode(), equals(MaskMode.off));
+      expect(TraceCloak.cycleMode(), equals(MaskMode.partial));
+      expect(TraceCloak.cycleMode(), equals(MaskMode.full));
 
       // Reset
-      VibeShield.setMode(MaskMode.partial);
+      TraceCloak.setMode(MaskMode.partial);
     });
 
     test(
-        '7. Direct VibeShieldDioInterceptor cleans headers, query, and body in logs',
+        '7. Direct TraceCloakDioInterceptor cleans headers, query, and body in logs',
         () {
       final captured = <String>[];
-      VibeShield.customPrinter = (msg) => captured.add(msg);
+      TraceCloak.customPrinter = (msg) => captured.add(msg);
 
       final dio = Dio();
-      final interceptor = VibeShield.dioInterceptor();
+      final interceptor = TraceCloak.dioInterceptor();
       dio.interceptors.add(interceptor);
       expect(dio.interceptors.contains(interceptor), isTrue);
 
@@ -166,14 +166,14 @@ void main() {
       expect(log.contains('51Hc29KJ8f3ks9fQ2ABCDEF12'), isFalse);
       expect(log.contains('AKIA****MPLE'), isTrue);
 
-      VibeShield.customPrinter = null;
+      TraceCloak.customPrinter = null;
     });
 
     test(
         '8. Provable Zero Release Footprint: enableInRelease = false directly runs body',
         () {
       bool executed = false;
-      final value = VibeShield.run(
+      final value = TraceCloak.run(
         () {
           executed = true;
           return 'hello_production';
@@ -205,7 +205,7 @@ void main() {
     });
 
     test(
-        '10. VibeShield.aiSafe & String.aiSafe scrubs prompts before sending to LLMs',
+        '10. TraceCloak.aiSafe & String.aiSafe scrubs prompts before sending to LLMs',
         () {
       const promptWithSecret =
           'User asked for refund on Stripe key sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890 and token ghp_16C7e42F292c6912E7710c838347Ae178B4a';
@@ -215,7 +215,7 @@ void main() {
       expect(safePrompt.contains('ghp_'), isFalse);
       expect(safePrompt.contains('51Hc29KJ8f3ks9fQ2'), isFalse);
 
-      final safeMap = VibeShield.aiSafe({
+      final safeMap = TraceCloak.aiSafe({
         'context': 'Debug context',
         'auth': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890',
       }) as Map;
@@ -227,7 +227,7 @@ void main() {
         '11. Stack trace and error sanitization (no leaked variables in crashes)',
         () {
       final captured = <String>[];
-      VibeShield.customPrinter = (msg) => captured.add(msg);
+      TraceCloak.customPrinter = (msg) => captured.add(msg);
 
       final fakeStackTrace = StackTrace.fromString(
         '#0 Database.connect (package:app/db.dart:42)\n'
@@ -235,12 +235,12 @@ void main() {
         '#2 main (package:app/main.dart:10)',
       );
 
-      final sanitizedTrace = VibeShield.sanitizeStackTrace(fakeStackTrace);
+      final sanitizedTrace = TraceCloak.sanitizeStackTrace(fakeStackTrace);
       expect(sanitizedTrace.toString().contains('sk_live_****7890'), isTrue);
       expect(sanitizedTrace.toString().contains('51Hc29KJ8f3ks9fQ2ABCDEF12'),
           isFalse);
 
-      VibeShield.error(
+      TraceCloak.error(
         'Fatal failure in auth service',
         error: 'Failed with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a',
         stackTrace: fakeStackTrace,
@@ -251,13 +251,13 @@ void main() {
       expect(captured[0].contains('sk_live_****7890'), isTrue);
       expect(captured[0].contains('16C7e42F292c6912E7710c838347Ae'), isFalse);
 
-      VibeShield.customPrinter = null;
+      TraceCloak.customPrinter = null;
     });
 
     test('12. wrapDebugPrint sanitizes framework-level logs', () {
       final captured = <String>[];
       final wrapped =
-          VibeShield.wrapDebugPrint((msg, {wrapWidth}) => captured.add(msg!));
+          TraceCloak.wrapDebugPrint((msg, {wrapWidth}) => captured.add(msg!));
 
       wrapped(
           'Flutter framework internal log: AWS secret AKIAIOSFODNN7EXAMPLE');
@@ -269,9 +269,9 @@ void main() {
     test('13. Dio Interceptor sanitizes URI query parameters and error dumps',
         () {
       final captured = <String>[];
-      VibeShield.customPrinter = (msg) => captured.add(msg);
+      TraceCloak.customPrinter = (msg) => captured.add(msg);
 
-      final interceptor = VibeShield.dioInterceptor();
+      final interceptor = TraceCloak.dioInterceptor();
       final options = RequestOptions(
         path:
             'https://api.example.com/checkout?apiKey=sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890',
@@ -285,16 +285,16 @@ void main() {
       expect(captured.any((c) => c.contains('51Hc29KJ8f3ks9fQ2ABCDEF12')),
           isFalse);
 
-      VibeShield.customPrinter = null;
+      TraceCloak.customPrinter = null;
     });
 
     test(
-        '14. VibeShield.run with onError sanitizes uncaught exception & stack trace',
+        '14. TraceCloak.run with onError sanitizes uncaught exception & stack trace',
         () {
       Object? receivedError;
       StackTrace? receivedStack;
 
-      VibeShield.run(
+      TraceCloak.run(
         () {
           throw Exception(
               'Network auth failed with token: ghp_16C7e42F292c6912E7710c838347Ae178B4a');

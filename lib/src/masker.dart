@@ -1,4 +1,4 @@
-/// Masking algorithms for VibeShield: Partial preview and Full shape-preserving mask.
+/// Masking algorithms for TraceCloak: Partial preview and Full shape-preserving mask.
 library;
 
 final RegExp _knownPrefixes = RegExp(

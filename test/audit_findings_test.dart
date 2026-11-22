@@ -6,7 +6,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 class _User {
   final String password;
@@ -36,18 +36,18 @@ void main() {
   late List<String> printed;
 
   setUp(() {
-    VibeShield.reset();
+    TraceCloak.reset();
     printed = [];
-    VibeShield.customPrinter = printed.add;
+    TraceCloak.customPrinter = printed.add;
   });
 
-  tearDown(VibeShield.reset);
+  tearDown(TraceCloak.reset);
 
   group('critical', () {
     test(
         'C1 sanitizeHeaders always masks credential headers, even short values',
         () {
-      final h = VibeShield.sanitizeHeaders({
+      final h = TraceCloak.sanitizeHeaders({
         'Authorization': 'Bearer hunter2',
         'Cookie': 'session=abc123',
         'X-Api-Key': 'k3yk3y9',
@@ -64,15 +64,15 @@ void main() {
     test('C2 sanitize() does not let custom objects leak through toString()',
         () {
       const secret = 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890';
-      expect(VibeShield.sanitize({'o': _User(secret)}).toString(),
+      expect(TraceCloak.sanitize({'o': _User(secret)}).toString(),
           isNot(contains('51Hc29KJ8f3ks9fQ2')));
 
-      VibeShield.info('user', metadata: {'o': _User(secret)});
+      TraceCloak.info('user', metadata: {'o': _User(secret)});
       expect(printed.single, isNot(contains('51Hc29KJ8f3ks9fQ2')));
     });
 
     test('C3 sanitize() masks values stored under sensitive keys', () {
-      final out = VibeShield.sanitize({
+      final out = TraceCloak.sanitize({
         'password': 'hunter2',
         'token': 'zq7',
         'nested': {'apiKey': 'k3y9'},
@@ -86,7 +86,7 @@ void main() {
 
     test('C3 Dio query parameters and bodies with short secrets are masked',
         () {
-      VibeShield.dioInterceptor().onRequest(
+      TraceCloak.dioInterceptor().onRequest(
         RequestOptions(
           path: 'https://api.example.com/login',
           queryParameters: {'token': 'shortTok1'},
@@ -111,7 +111,7 @@ void main() {
         'secret_key: "k9F#hunter2"',
         'User(authToken: hunter2)',
       ]) {
-        final out = VibeShield.redact(line);
+        final out = TraceCloak.redact(line);
         expect(out, isNot(contains('hunter2')), reason: out);
         expect(out, isNot(contains('abc9')), reason: out);
         expect(out, isNot(contains('abc123')), reason: out);
@@ -127,14 +127,14 @@ void main() {
         'isSecret: true',
         'password: null',
       ]) {
-        expect(VibeShield.redact(line), line);
+        expect(TraceCloak.redact(line), line);
       }
     });
 
     test(
         'H2 custom rule without a capture group masks the whole match instead of throwing',
         () {
-      VibeShield.addRules([
+      TraceCloak.addRules([
         DartSecretRule(
             id: 'acme',
             name: 'ACME',
@@ -143,7 +143,7 @@ void main() {
             regex: RegExp(r'ACME-[0-9]{8}')),
       ]);
       late String out;
-      expect(() => out = VibeShield.redact('my key ACME-12345678 here'),
+      expect(() => out = TraceCloak.redact('my key ACME-12345678 here'),
           returnsNormally);
       expect(out, isNot(contains('12345678')));
     });
@@ -151,8 +151,8 @@ void main() {
     test(
         'H3 an exact secret that contains another exact secret is fully masked',
         () {
-      VibeShield.addExactMatches(['h3abcd1234', 'h3abcd1234XYZsecretvalue']);
-      final out = VibeShield.redact('a h3abcd1234XYZsecretvalue b');
+      TraceCloak.addExactMatches(['h3abcd1234', 'h3abcd1234XYZsecretvalue']);
+      final out = TraceCloak.redact('a h3abcd1234XYZsecretvalue b');
       expect(out, isNot(contains('XYZsecret')));
       expect(out, isNot(contains('secretvalue')));
     });
@@ -201,13 +201,13 @@ void main() {
         ],
       };
       cases.forEach((input, leaks) {
-        final out = VibeShield.redact(input);
+        final out = TraceCloak.redact(input);
         for (final leak in leaks) {
           expect(out, isNot(contains(leak)), reason: out);
         }
       });
       expect(
-          VibeShield.redact(
+          TraceCloak.redact(
               'GET https://api.x.com/v1?access_token=abc123xyz&page=2'),
           contains('page=2'));
     });
@@ -228,8 +228,8 @@ void main() {
       };
       samples.forEach((key, prefix) {
         final events = <RedactionEvent>[];
-        VibeShield.onRedacted = events.add;
-        final out = VibeShield.redact('value $key end');
+        TraceCloak.onRedacted = events.add;
+        final out = TraceCloak.redact('value $key end');
         expect(out,
             isNot(contains(key.substring(prefix.length, prefix.length + 10))),
             reason: out);
@@ -246,7 +246,7 @@ void main() {
         'M1 run(onError:) receives an object that keeps the original exception type',
         () {
       Object? received;
-      VibeShield.run(
+      TraceCloak.run(
         () => throw StateError(
             'auth failed ghp_16C7e42F292c6912E7710c838347Ae178B4a'),
         onError: (e, _) => received = e,
@@ -261,8 +261,8 @@ void main() {
       final out = <String>[];
       runZoned(
         () {
-          VibeShield.customPrinter = (m) => print('[app] $m');
-          VibeShield.run(
+          TraceCloak.customPrinter = (m) => print('[app] $m');
+          TraceCloak.run(
               () => print('hello sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'));
         },
         zoneSpecification:
@@ -278,9 +278,9 @@ void main() {
       addTearDown(() => dir.deleteSync(recursive: true));
       File('${dir.path}/.cursorignore').writeAsStringSync(
         'my-own-rule\n'
-        '# --- VibeShield Managed AI-Ignore Rules ---\n'
+        '# --- TraceCloak Managed AI-Ignore Rules ---\n'
         '.env\n'
-        '# --- End VibeShield Managed Rules ---\n'
+        '# --- End TraceCloak Managed Rules ---\n'
         'another-user-rule\n',
       );
       AiShield.protectProject(dir.path);
@@ -289,7 +289,7 @@ void main() {
       expect(content, contains('my-own-rule'));
       expect(content, contains('another-user-rule'));
       expect(
-          '# --- VibeShield Managed AI-Ignore Rules ---'
+          '# --- TraceCloak Managed AI-Ignore Rules ---'
               .allMatches(content)
               .length,
           1);
@@ -298,21 +298,21 @@ void main() {
     test('M6 class names and identifiers are not treated as secrets', () {
       for (final s in [
         'class AbstractSingletonProxyFactoryBeanImpl',
-        'VibeShieldDioInterceptorFactoryBuilder2024',
+        'TraceCloakDioInterceptorFactoryBuilder2024',
         'id 550e8400-e29b-41d4-a716-446655440000',
         'sha 3f786850e387550fdab836ed7e6dc881de23001b',
         'path lib/src/features/authentication/presentation/login_screen.dart',
         'pkg flutter_secure_storage_platform_interface',
       ]) {
-        expect(VibeShield.redact(s), s);
+        expect(TraceCloak.redact(s), s);
       }
     });
   });
 
   group('low', () {
     test('L1 log level appears in output', () {
-      VibeShield.warn('disk almost full');
-      VibeShield.error('boom');
+      TraceCloak.warn('disk almost full');
+      TraceCloak.error('boom');
       expect(printed[0], contains('WARN'));
       expect(printed[1], contains('ERROR'));
     });
@@ -323,7 +323,7 @@ void main() {
       expect(() => MaskMode.fromEnvironment('OTHER_KEY'),
           throwsA(isA<AssertionError>()));
       expect(
-          MaskMode.fromEnvironment('VIBESHIELD_MODE', fallback: MaskMode.full),
+          MaskMode.fromEnvironment('TRACECLOAK_MODE', fallback: MaskMode.full),
           MaskMode.full);
     });
 
@@ -333,7 +333,7 @@ void main() {
 
     test('L4 characterisation: install() does not intercept print()', () {
       final out = <String>[];
-      VibeShield.install();
+      TraceCloak.install();
       runZoned(
         () => print('raw sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'),
         zoneSpecification:
@@ -346,7 +346,7 @@ void main() {
         'L6 characterisation: async, timer and microtask prints inside run() are intercepted',
         () async {
       final done = Completer<void>();
-      VibeShield.run(() async {
+      TraceCloak.run(() async {
         await Future<void>.delayed(Duration.zero);
         print('a sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890');
         scheduleMicrotask(
@@ -362,11 +362,11 @@ void main() {
     });
 
     test('L7 a throwing onRedacted callback does not break redaction', () {
-      VibeShield.onRedacted = (_) => throw StateError('telemetry down');
+      TraceCloak.onRedacted = (_) => throw StateError('telemetry down');
       late String out;
       expect(
           () => out =
-              VibeShield.redact('k sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'),
+              TraceCloak.redact('k sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'),
           returnsNormally);
       expect(out, contains('sk_live_****7890'));
     });
@@ -376,18 +376,18 @@ void main() {
         'token': 'sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'
       };
       cyclic['self'] = cyclic;
-      expect(() => VibeShield.sanitize(cyclic), returnsNormally);
+      expect(() => TraceCloak.sanitize(cyclic), returnsNormally);
     });
 
     test('L9 rules match at _ and - boundaries', () {
       final events = <RedactionEvent>[];
-      VibeShield.onRedacted = events.add;
-      VibeShield.redact('k: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890_x');
+      TraceCloak.onRedacted = events.add;
+      TraceCloak.redact('k: sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890_x');
       expect(events.map((e) => e.ruleName), contains('Stripe Live Secret Key'));
 
       const jwt =
           'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw-';
-      expect(VibeShield.redact('jwt $jwt end', overrideMode: MaskMode.full),
+      expect(TraceCloak.redact('jwt $jwt end', overrideMode: MaskMode.full),
           isNot(contains('w-')));
     });
 
@@ -396,7 +396,7 @@ void main() {
               20000, (i) => 'line $i user=bob action=click value=${i * 31}')
           .join('\n');
       final sw = Stopwatch()..start();
-      VibeShield.redact(big);
+      TraceCloak.redact(big);
       expect(sw.elapsedMilliseconds, lessThan(1000));
     });
 
@@ -412,10 +412,10 @@ void main() {
         '-----BEGIN PRIVATE KEY-----${'A' * n}',
         'aB3+/' * n,
       ];
-      VibeShield.redact(inputs.first); // JIT warm-up
+      TraceCloak.redact(inputs.first); // JIT warm-up
       for (final input in inputs) {
         final sw = Stopwatch()..start();
-        VibeShield.redact(input);
+        TraceCloak.redact(input);
         expect(sw.elapsedMilliseconds, lessThan(1000),
             reason: input.substring(0, 20));
       }

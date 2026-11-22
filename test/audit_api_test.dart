@@ -1,13 +1,13 @@
 // Audit findings that needed a new or corrected public API (see AUDIT.md).
 // This file did not compile on the pre-release baseline.
 import 'package:test/test.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
-  test('L5 VibeShield.reset() restores every piece of global state', () {
-    VibeShield.mode = MaskMode.off;
-    VibeShield.addExactMatches(['L5-exact-secret']);
-    VibeShield.addRules([
+  test('L5 TraceCloak.reset() restores every piece of global state', () {
+    TraceCloak.mode = MaskMode.off;
+    TraceCloak.addExactMatches(['L5-exact-secret']);
+    TraceCloak.addRules([
       DartSecretRule(
           id: 'x',
           name: 'x',
@@ -15,16 +15,16 @@ void main() {
           cwe: 'x',
           regex: RegExp('L5-custom')),
     ]);
-    VibeShield.customPrinter = (_) {};
-    VibeShield.onRedacted = (_) {};
+    TraceCloak.customPrinter = (_) {};
+    TraceCloak.onRedacted = (_) {};
 
-    VibeShield.reset();
+    TraceCloak.reset();
 
-    expect(VibeShield.mode, MaskMode.partial);
-    expect(VibeShield.customPrinter, isNull);
-    expect(VibeShield.onRedacted, isNull);
-    expect(VibeShield.isInstalled, isFalse);
-    expect(VibeShield.redact('x L5-exact-secret L5-custom y'),
+    expect(TraceCloak.mode, MaskMode.partial);
+    expect(TraceCloak.customPrinter, isNull);
+    expect(TraceCloak.onRedacted, isNull);
+    expect(TraceCloak.isInstalled, isFalse);
+    expect(TraceCloak.redact('x L5-exact-secret L5-custom y'),
         'x L5-exact-secret L5-custom y');
   });
 
@@ -32,7 +32,7 @@ void main() {
       'M1 RedactedError keeps the original error and only exposes redacted text',
       () {
     RedactedError? received;
-    VibeShield.run(
+    TraceCloak.run(
       () => throw ArgumentError(
           'bad key sk_live_51Hc29KJ8f3ks9fQ2ABCDEF1234567890'),
       onError: (e, _) => received = e as RedactedError,

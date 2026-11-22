@@ -1,4 +1,4 @@
-// Integration tests for bin/vibeshield.dart (see AUDIT.md H8).
+// Integration tests for bin/tracecloak.dart (see AUDIT.md H8).
 @Timeout(Duration(minutes: 3))
 library;
 
@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 
 Future<ProcessResult> _scan(Directory dir, [List<String> extra = const []]) =>
     Process.run(Platform.resolvedExecutable,
-        ['run', 'bin/vibeshield.dart', '--path=${dir.path}', ...extra]);
+        ['run', 'bin/tracecloak.dart', '--path=${dir.path}', ...extra]);
 
 void main() {
   late Directory dir;

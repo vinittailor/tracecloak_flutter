@@ -1,9 +1,9 @@
-/// Unified VibeShield Flutter/Dart SDK combining:
-/// 1. Zone-based `print()` interception (`VibeShield.run()`)
+/// Unified TraceCloak Flutter/Dart SDK combining:
+/// 1. Zone-based `print()` interception (`TraceCloak.run()`)
 /// 2. Native Dart extension methods (`secret.masked`, `text.redacted`, `secret.fullMasked`)
-/// 3. Structured fluent logging with auto-sanitized metadata (`VibeShield.info(...)`, `VibeShield.log(...).send()`)
-/// 4. Network header scrubbing (`VibeShield.sanitizeHeaders(...)`)
-/// 5. Non-custodial audit callbacks (`VibeShield.onRedacted`)
+/// 3. Structured fluent logging with auto-sanitized metadata (`TraceCloak.info(...)`, `TraceCloak.log(...).send()`)
+/// 4. Network header scrubbing (`TraceCloak.sanitizeHeaders(...)`)
+/// 5. Non-custodial audit callbacks (`TraceCloak.onRedacted`)
 /// 6. No zone and no log output in release builds unless `enableInRelease: true`
 library;
 
@@ -24,9 +24,9 @@ export 'dio_interceptor.dart';
 export 'ai_shield.dart';
 
 /// Backward-compatibility alias
-typedef SecureLog = VibeShield;
+typedef SecureLog = TraceCloak;
 
-/// An error whose text has been redacted, passed to `VibeShield.run(onError:)`
+/// An error whose text has been redacted, passed to `TraceCloak.run(onError:)`
 /// and to the parent zone's uncaught-error handler.
 ///
 /// [toString] and [message] contain only redacted text, so it is safe to hand
@@ -63,7 +63,7 @@ class _Span {
       [this.prefix]);
 }
 
-class VibeShield {
+class TraceCloak {
   static MaskMode mode = MaskMode.partial;
   static final Set<String> _exactMatches = {};
   static final List<DartSecretRule> _customRules = [];
@@ -117,7 +117,7 @@ class VibeShield {
 
   /// Restores all global state to its defaults: mode, exact matches, custom
   /// rules, [customPrinter], [onRedacted] and the installed/release flags.
-  /// Intended for tests (`setUp(VibeShield.reset)`).
+  /// Intended for tests (`setUp(TraceCloak.reset)`).
   static void reset() {
     mode = MaskMode.partial;
     _exactMatches.clear();
@@ -129,17 +129,17 @@ class VibeShield {
   }
 
   /// Direct plug-and-play Dio Interceptor instance.
-  /// Usage: `dio.interceptors.add(VibeShield.dioInterceptor());`
+  /// Usage: `dio.interceptors.add(TraceCloak.dioInterceptor());`
   /// Optionally override the masking mode specifically for Dio:
-  /// `dio.interceptors.add(VibeShield.dioInterceptor(mode: MaskMode.full));`
-  static VibeShieldDioInterceptor dioInterceptor({
+  /// `dio.interceptors.add(TraceCloak.dioInterceptor(mode: MaskMode.full));`
+  static TraceCloakDioInterceptor dioInterceptor({
     MaskMode? mode,
     bool enableInRelease = false,
     bool logRequests = true,
     bool logResponses = true,
     bool logErrors = true,
   }) =>
-      VibeShieldDioInterceptor(
+      TraceCloakDioInterceptor(
         overrideMode: mode,
         enableInRelease: enableInRelease,
         logRequests: logRequests,
@@ -159,13 +159,13 @@ class VibeShield {
   /// intercepting anything.
   ///
   /// `install()` does **not** mask plain `print()`. Dart's `print()` can only be
-  /// intercepted by running code inside a [Zone]; use [VibeShield.run] for that:
+  /// intercepted by running code inside a [Zone]; use [TraceCloak.run] for that:
   /// ```dart
-  /// void main() => VibeShield.run(() => runApp(const MyApp()));
+  /// void main() => TraceCloak.run(() => runApp(const MyApp()));
   /// ```
   /// Configuration is applied in every build mode, so [redact], [aiSafe] and
   /// [sanitize] keep honouring [exactSecrets] in release builds. Structured log
-  /// output ([VibeShield.print], [info], ...) is only emitted in release builds
+  /// output ([TraceCloak.print], [info], ...) is only emitted in release builds
   /// when [enableInRelease] is true.
   static void install({
     MaskMode? initialMode,
@@ -178,7 +178,7 @@ class VibeShield {
     if (kDebugMode || enableInRelease) _installed = true;
   }
 
-  /// True if [install] or [run] has configured VibeShield for this build mode.
+  /// True if [install] or [run] has configured TraceCloak for this build mode.
   /// This does not mean `print()` is intercepted — only code inside [run] is.
   static bool get isInstalled => _installed;
 
@@ -208,7 +208,7 @@ class VibeShield {
   /// still applied so explicit [redact] / [aiSafe] calls keep working.
   ///
   /// ```dart
-  /// void main() => VibeShield.run(() => runApp(const MyApp()));
+  /// void main() => TraceCloak.run(() => runApp(const MyApp()));
   /// ```
   static R? run<R>(
     R Function() body, {
@@ -268,7 +268,7 @@ class VibeShield {
   ///
   /// Usage in Flutter `main()`:
   /// ```dart
-  /// debugPrint = VibeShield.wrapDebugPrint(debugPrint);
+  /// debugPrint = TraceCloak.wrapDebugPrint(debugPrint);
   /// ```
   static void Function(String? message, {int? wrapWidth}) wrapDebugPrint([
     void Function(String? message, {int? wrapWidth})? original,
@@ -570,10 +570,10 @@ class VibeShield {
   // 4. FLUENT STRUCTURED LOGGING
   // --------------------------------------------------------------------------
 
-  /// Fluent log builder: `VibeShield.log('Checkout').tag('BILLING').data({...}).send()`
-  static VibeShieldLogBuilder log(String message,
+  /// Fluent log builder: `TraceCloak.log('Checkout').tag('BILLING').data({...}).send()`
+  static TraceCloakLogBuilder log(String message,
           [LogLevel level = LogLevel.info]) =>
-      VibeShieldLogBuilder(message, level);
+      TraceCloakLogBuilder(message, level);
 
   /// Direct structured methods for each log level
   static void debug(
@@ -659,7 +659,7 @@ class VibeShield {
 }
 
 /// Fluent builder for structured logs with metadata, error, and tags.
-class VibeShieldLogBuilder {
+class TraceCloakLogBuilder {
   final String _message;
   final LogLevel _level;
   String? _tag;
@@ -667,26 +667,26 @@ class VibeShieldLogBuilder {
   Object? _error;
   StackTrace? _stackTrace;
 
-  VibeShieldLogBuilder(this._message, [this._level = LogLevel.info]);
+  TraceCloakLogBuilder(this._message, [this._level = LogLevel.info]);
 
-  VibeShieldLogBuilder tag(String tag) {
+  TraceCloakLogBuilder tag(String tag) {
     _tag = tag;
     return this;
   }
 
-  VibeShieldLogBuilder data(Map<String, dynamic> metadata) {
+  TraceCloakLogBuilder data(Map<String, dynamic> metadata) {
     _metadata = metadata;
     return this;
   }
 
-  VibeShieldLogBuilder error(Object error, [StackTrace? stackTrace]) {
+  TraceCloakLogBuilder error(Object error, [StackTrace? stackTrace]) {
     _error = error;
     _stackTrace = stackTrace;
     return this;
   }
 
   void send() {
-    VibeShield.print(
+    TraceCloak.print(
       _message,
       metadata: _metadata,
       error: _error,
@@ -702,23 +702,23 @@ class VibeShieldLogBuilder {
 // --------------------------------------------------------------------------
 
 /// Idiomatic Dart string extension for effortless secret masking.
-extension VibeShieldStringExtension on String {
+extension TraceCloakStringExtension on String {
   /// Redacts all sensitive credentials contained in this string.
-  String get redacted => VibeShield.redact(this);
+  String get redacted => TraceCloak.redact(this);
 
   /// Masks this string as a single secret in partial (half) mode (e.g. `sk_live_****9fQ2`).
-  String get masked => VibeShield.mask(this, overrideMode: MaskMode.partial);
+  String get masked => TraceCloak.mask(this, overrideMode: MaskMode.partial);
 
   /// Half mask alias for partial mode.
   String get halfMasked =>
-      VibeShield.mask(this, overrideMode: MaskMode.partial);
+      TraceCloak.mask(this, overrideMode: MaskMode.partial);
 
   /// Masks this string in full shape-preserving mode (guaranteeing 0% character overlap).
-  String get fullMasked => VibeShield.mask(this, overrideMode: MaskMode.full);
+  String get fullMasked => TraceCloak.mask(this, overrideMode: MaskMode.full);
 
   /// Masks this string using an explicit mode.
-  String maskWith(MaskMode mode) => VibeShield.mask(this, overrideMode: mode);
+  String maskWith(MaskMode mode) => TraceCloak.mask(this, overrideMode: mode);
 
   /// Converts this string or prompt into an AI-safe prompt where all credentials are fully masked.
-  String get aiSafe => VibeShield.redact(this, overrideMode: MaskMode.full);
+  String get aiSafe => TraceCloak.redact(this, overrideMode: MaskMode.full);
 }

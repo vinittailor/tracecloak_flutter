@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:vibeshield_flutter/vibeshield_flutter.dart';
+import 'package:tracecloak/tracecloak.dart';
 
 void main() {
   group('Dart/Flutter SecureLog Unit Tests', () {

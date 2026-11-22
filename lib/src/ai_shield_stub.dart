@@ -9,6 +9,6 @@ List<String> writeManagedFiles(
 ) {
   throw UnsupportedError(
     'AiShield.protectProject() needs dart:io and is not available on the web. '
-    'Run `dart run vibeshield --shield-ai` from your project instead.',
+    'Run `dart run tracecloak --shield-ai` from your project instead.',
   );
 }

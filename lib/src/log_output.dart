@@ -3,7 +3,7 @@ library;
 
 import 'dart:async';
 
-import 'vibeshield.dart';
+import 'tracecloak.dart';
 
 /// Formats, sanitises and emits one structured log line. Callers decide
 /// whether output is allowed (debug build or explicit `enableInRelease`).
@@ -18,24 +18,24 @@ void emitStructuredLog(
 }) {
   final buffer = StringBuffer('[${level.name.toUpperCase()}] ');
   if (tag != null) buffer.write('[$tag] ');
-  buffer.write(VibeShield.redact(object?.toString() ?? 'null',
+  buffer.write(TraceCloak.redact(object?.toString() ?? 'null',
       overrideMode: overrideMode));
 
   if (metadata != null && metadata.isNotEmpty) {
     buffer.write(
-        ' | metadata: ${VibeShield.sanitize(metadata, overrideMode: overrideMode)}');
+        ' | metadata: ${TraceCloak.sanitize(metadata, overrideMode: overrideMode)}');
   }
   if (error != null) {
     buffer.write(
-        ' | error: ${VibeShield.redact(error.toString(), overrideMode: overrideMode)}');
+        ' | error: ${TraceCloak.redact(error.toString(), overrideMode: overrideMode)}');
   }
   if (stackTrace != null) {
     buffer.write(
-        '\n${VibeShield.sanitizeStackTrace(stackTrace, overrideMode: overrideMode)}');
+        '\n${TraceCloak.sanitizeStackTrace(stackTrace, overrideMode: overrideMode)}');
   }
 
   final output = buffer.toString();
-  final printer = VibeShield.customPrinter;
+  final printer = TraceCloak.customPrinter;
   if (printer != null) {
     printer(output);
   } else {
