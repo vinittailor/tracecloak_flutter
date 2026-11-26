@@ -53,11 +53,20 @@ void main(List<String> args) {
       final lines = file.readAsLinesSync();
       final relPath = _relativePath(scanDir.path, file.path);
 
+      var skipNextLine = false;
       for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
         final line = lines[lineIdx];
 
-        // Respect inline ignore comments: // tracecloak-ignore or # tracecloak-ignore
-        if (line.toLowerCase().contains('tracecloak-ignore')) {
+        if (skipNextLine) {
+          skipNextLine = false;
+          continue;
+        }
+        if (_ignoreNextLineComment.hasMatch(line)) {
+          skipNextLine = true;
+          continue;
+        }
+        // Respect inline ignore comments: // tracecloak-ignore, # tracecloak-ignore, /* tracecloak-ignore */
+        if (_ignoreInlineComment.hasMatch(line)) {
           continue;
         }
 
@@ -172,6 +181,12 @@ void main(List<String> args) {
 final List<DartSecretRule> _scanRules = defaultDartRules
     .where((r) => r.confidence == kConfidenceConfirmed)
     .toList();
+
+final RegExp _ignoreInlineComment =
+    RegExp(r'(?<!:)(?://|#|/\*)\s*tracecloak-ignore\b', caseSensitive: false);
+final RegExp _ignoreNextLineComment = RegExp(
+    r'(?<!:)(?://|#|/\*)\s*tracecloak-ignore-next-line\b',
+    caseSensitive: false);
 
 class ScanFinding {
   final String filePath;

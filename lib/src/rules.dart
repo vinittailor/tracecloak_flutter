@@ -47,7 +47,7 @@ const String _start = r'(?<![A-Za-z0-9])';
 
 /// Keywords whose value is a secret when followed by `=` or `:`.
 const String _secretKeywords =
-    r'pass(?:word|wd|phrase)|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|'
+    r'pass(?:word|wd|phrase|code)?|pwd|otp|pin|cvv|cvc|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|'
     r'credentials?|session[_-]?id|session|cookie|authorization|auth';
 
 /// Literals that follow a keyword in code or config dumps but are not secrets.

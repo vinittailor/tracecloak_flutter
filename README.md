@@ -185,15 +185,18 @@ final dio = Dio();
 // Add TraceCloak interceptor in ONE line
 dio.interceptors.add(TraceCloak.dioInterceptor());
 
-// Or configure with custom options
+// Or configure with custom options & custom sensitive key names
 dio.interceptors.add(TraceCloakDioInterceptor(
   overrideMode: MaskMode.partial,
   enableInRelease: false, // Default: no logging in release builds
   logRequests: true,
   logResponses: true,
   logErrors: true,
+  sensitiveKeys: ['xyz_key', 'mpin'], // Always mask these keys (case-insensitive)
 ));
 ```
+
+You can also register custom sensitive keys globally with `TraceCloak.addSensitiveKeys(['xyz_key'])` or `TraceCloak.run(sensitiveKeys: ['xyz_key'], ...)`. Built-in sensitive keys (`pass`, `password`, `otp`, `pin`, `cvv`, `token`, `secret`, `api_key`, etc.) and `FormData` fields / raw JSON string bodies are masked automatically.
 
 ### Output
 ```text
@@ -473,6 +476,11 @@ test('logs are masked', () {
 | `logRequests` | `bool` | `true` | Log outgoing requests (method, URI, headers, query, body). |
 | `logResponses` | `bool` | `true` | Log responses (status, URI, body). |
 | `logErrors` | `bool` | `true` | Log Dio exceptions. |
+| `logRequestHeaders` | `bool` | `true` | Include request headers in `[DIO-REQ]` logs. |
+| `logRequestBody` | `bool` | `true` | Include request body in `[DIO-REQ]` logs. |
+| `logResponseBody` | `bool` | `true` | Include response body in `[DIO-RES]` logs. |
+| `maxBodyLength` | `int?` | `null` | Optional max character length for sanitized bodies in logs. |
+| `sensitiveKeys` | `List<String>` | `const []` | Extra key names whose values are always masked (case-insensitive) in headers, query params, bodies, and JSON responses. |
 
 ### `SecureKey(raw, {maskMode})`
 

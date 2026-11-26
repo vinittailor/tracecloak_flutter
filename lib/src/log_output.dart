@@ -15,6 +15,7 @@ void emitStructuredLog(
   String? tag,
   LogLevel level = LogLevel.info,
   MaskMode? overrideMode,
+  Iterable<String>? sensitiveKeys,
 }) {
   final buffer = StringBuffer('[${level.name.toUpperCase()}] ');
   if (tag != null) buffer.write('[$tag] ');
@@ -23,7 +24,7 @@ void emitStructuredLog(
 
   if (metadata != null && metadata.isNotEmpty) {
     buffer.write(
-        ' | metadata: ${TraceCloak.sanitize(metadata, overrideMode: overrideMode)}');
+        ' | metadata: ${TraceCloak.sanitize(metadata, overrideMode: overrideMode, sensitiveKeys: sensitiveKeys)}');
   }
   if (error != null) {
     buffer.write(

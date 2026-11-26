@@ -1,6 +1,6 @@
 name: tracecloak
 description: Masks API keys, tokens and passwords in Dart and Flutter print() output, logs, Dio HTTP logs, crash reports and AI prompts. Zero custody, off in release builds by default.
-version: 0.1.0
+version: 0.1.1
 homepage: https://github.com/vinittailor/tracecloak_flutter
 repository: https://github.com/vinittailor/tracecloak_flutter
 issue_tracker: https://github.com/vinittailor/tracecloak_flutter/issues

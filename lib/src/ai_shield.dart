@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'ai_shield_stub.dart' if (dart.library.io) 'ai_shield_io.dart' as files;
 import 'tracecloak.dart';
 
@@ -90,14 +91,73 @@ class AiShield {
     _endMarker,
   ];
 
-  /// Creates the AI-ignore files in [rootPath] (defaults to the current
-  /// directory), or refreshes the TraceCloak-managed block inside existing ones.
-  /// Lines outside the managed block are never changed.
+  static const String claudeSettingsFile = '.claude/settings.json';
+
+  static const List<String> claudeDenyRules = [
+    'Read(.env)',
+    'Read(.env.*)',
+    'Read(**/*.env)',
+    'Read(**/key.properties)',
+    'Read(**/local.properties)',
+    'Read(**/google-services.json)',
+    'Read(**/GoogleService-Info.plist)',
+    'Read(**/*.keystore)',
+    'Read(**/*.jks)',
+    'Read(**/*.p12)',
+    'Read(**/*.pem)',
+    'Read(**/*.key)',
+  ];
+
+  /// Creates the AI-ignore files and `.claude/settings.json` deny rules in
+  /// [rootPath] (defaults to the current directory), or refreshes the
+  /// TraceCloak-managed entries inside existing ones.
+  /// Lines outside the managed block (and existing Claude settings) are kept.
   /// Returns the names of files that were created or modified.
   /// Throws [UnsupportedError] on the web (no `dart:io`).
   static List<String> protectProject([String? rootPath]) {
-    return files.writeManagedFiles(
-        rootPath, managedAiIgnoreFiles, _withManagedBlock);
+    final updated = <String>[
+      ...files.writeManagedFiles(
+          rootPath, managedAiIgnoreFiles, _withManagedBlock),
+      ...files.writeManagedFiles(
+          rootPath, [claudeSettingsFile], _mergeClaudeSettings),
+    ];
+    return updated;
+  }
+
+  static String _mergeClaudeSettings(String? existing) {
+    Map<String, dynamic> doc;
+    if (existing == null || existing.trim().isEmpty) {
+      doc = <String, dynamic>{};
+    } else {
+      try {
+        final parsed = jsonDecode(existing);
+        if (parsed is! Map<String, dynamic>) return existing;
+        doc = Map<String, dynamic>.from(parsed);
+      } on FormatException {
+        // Never overwrite malformed user settings.
+        return existing;
+      }
+    }
+
+    final rawPerms = doc['permissions'];
+    final perms = rawPerms is Map<String, dynamic>
+        ? Map<String, dynamic>.from(rawPerms)
+        : <String, dynamic>{};
+    final rawDeny = perms['deny'];
+    final deny = rawDeny is List ? List<dynamic>.from(rawDeny) : <dynamic>[];
+
+    var changed = existing == null || existing.trim().isEmpty;
+    for (final rule in claudeDenyRules) {
+      if (!deny.contains(rule)) {
+        deny.add(rule);
+        changed = true;
+      }
+    }
+    if (!changed && existing != null) return existing;
+
+    perms['deny'] = deny;
+    doc['permissions'] = perms;
+    return '${const JsonEncoder.withIndent('  ').convert(doc)}\n';
   }
 
   /// Inserts or replaces the managed block in [existing] (null = new file).

@@ -16,10 +16,12 @@ List<String> writeManagedFiles(
   }
   final updated = <String>[];
   for (final name in fileNames) {
-    final file = File('${root.path}${Platform.pathSeparator}$name');
+    final normalized = name.replaceAll('/', Platform.pathSeparator);
+    final file = File('${root.path}${Platform.pathSeparator}$normalized');
     final existing = file.existsSync() ? file.readAsStringSync() : null;
     final next = render(existing);
     if (next != existing) {
+      file.parent.createSync(recursive: true);
       file.writeAsStringSync(next);
       updated.add(name);
     }

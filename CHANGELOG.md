@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-11-26
+
+### Added
+- **Custom `sensitiveKeys`**: Supply extra key names (case-insensitive, e.g. `['xyz_key', 'mpin']`) on `TraceCloakDioInterceptor(sensitiveKeys: ...)` / `TraceCloak.dioInterceptor(sensitiveKeys: ...)` or globally via `TraceCloak.addSensitiveKeys(...)`, `TraceCloak.clearSensitiveKeys()`, `TraceCloak.install(sensitiveKeys: ...)`, and `TraceCloak.run(sensitiveKeys: ...)`.
+- **Dio body & byte controls**: Added `logRequestHeaders`, `logRequestBody`, `logResponseBody`, and `maxBodyLength` (truncates after sanitization) to `TraceCloakDioInterceptor` and `TraceCloak.dioInterceptor(...)`. Binary `List<int>` / `Uint8List` payloads are summarized as `<N bytes>`.
+- **`TraceCloak.wrapPrint`**: Helper to wrap third-party logger callbacks or Dio's `LogInterceptor(logPrint: TraceCloak.wrapPrint())`.
+- **Claude Code `.claude/settings.json`**: `AiShield.protectProject()` / `dart run tracecloak --shield-ai` now also merges `permissions.deny` rules into `.claude/settings.json` without overwriting existing user rules.
+- **CLI `tracecloak-ignore-next-line`**: Added next-line comment ignore directive in `bin/tracecloak.dart`.
+
+### Improved
+- **Built-in `pass`, `otp`, `pin`, `cvv` matching**: Expanded key matching to cover delimited and camelCase variants (`user_pass`, `otp_code`, `userOtp`, `pin_code`, `mpin`, `cardCvv`, etc.) without false positives on unrelated words (`compass`, `passenger`, `opinion`).
+- **JSON & FormData sanitization**: `TraceCloak.sanitize()` now decodes raw JSON object/array strings (such as `ResponseType.plain` Dio responses) for key-aware masking, `TraceCloakDioInterceptor` extracts and sanitizes `FormData` fields and custom query parameter keys in logged URLs, and `TraceCloak.redact()` masks `addSensitiveKeys` values in plain `print()` JSON strings.
+- **CLI `tracecloak-ignore` hardening**: Restricted `tracecloak-ignore` to actual comments (`//`, `#`, `/*`), excluding URLs like `https://tracecloak-ignore...`.
+
 ## [0.1.0] - 2026-11-22
 
 Initial release of `tracecloak`. It replaces `vibeshield_flutter` (the same code, briefly published under the old project name): change the dependency to `tracecloak`, imports to `package:tracecloak/tracecloak.dart`, and `VibeShield` to `TraceCloak`.

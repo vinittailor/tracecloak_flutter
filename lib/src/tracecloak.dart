@@ -8,6 +8,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'masker.dart';
 import 'rules.dart';
 import 'entropy.dart';
@@ -66,6 +67,8 @@ class _Span {
 class TraceCloak {
   static MaskMode mode = MaskMode.partial;
   static final Set<String> _exactMatches = {};
+  static final Set<String> _customSensitiveKeys = {};
+  static RegExp? _customKeysRegex;
   static final List<DartSecretRule> _customRules = [];
   static void Function(String message)? customPrinter;
   static bool _installed = false;
@@ -76,9 +79,15 @@ class TraceCloak {
 
   /// Map keys / header names whose values are always masked in full.
   static final RegExp _sensitiveKey = RegExp(
-    r'pass(?:word|wd|phrase)|^pass$|pwd|secret|token|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|'
-    r'credential|cookie|session|authorization|auth$|signature|^pin$|^otp$|^cvv$|^key$',
+    r'pass(?:word|wd|phrase|code)|pwd|secret|token|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|'
+    r'credential|cookie|session|authorization|auth$|signature|'
+    r'(?:^|[-_ ])(?:pass|otp|pin|cvv|cvc|mpin|tpin)(?:$|[-_ ])|^key$',
     caseSensitive: false,
+  );
+
+  /// CamelCase variants such as `userOtp`, `otpCode`, `newPass`, `pinCode`, `cardCvv`.
+  static final RegExp _sensitiveCamelCaseKey = RegExp(
+    r'(?:^|(?<=[a-z0-9]))(?:Pass|Otp|OTP|Pin|PIN|Cvv|CVV|Cvc|CVC)(?:$|(?=[A-Z0-9_-]))',
   );
 
   static final RegExp _authScheme = RegExp(
@@ -121,6 +130,8 @@ class TraceCloak {
   static void reset() {
     mode = MaskMode.partial;
     _exactMatches.clear();
+    _customSensitiveKeys.clear();
+    _customKeysRegex = null;
     _customRules.clear();
     customPrinter = null;
     onRedacted = null;
@@ -130,14 +141,20 @@ class TraceCloak {
 
   /// Direct plug-and-play Dio Interceptor instance.
   /// Usage: `dio.interceptors.add(TraceCloak.dioInterceptor());`
-  /// Optionally override the masking mode specifically for Dio:
-  /// `dio.interceptors.add(TraceCloak.dioInterceptor(mode: MaskMode.full));`
+  /// Optionally override the masking mode or supply custom [sensitiveKeys]
+  /// whose values should always be masked in request/response logs:
+  /// `dio.interceptors.add(TraceCloak.dioInterceptor(sensitiveKeys: ['xyz_key']));`
   static TraceCloakDioInterceptor dioInterceptor({
     MaskMode? mode,
     bool enableInRelease = false,
     bool logRequests = true,
     bool logResponses = true,
     bool logErrors = true,
+    bool logRequestHeaders = true,
+    bool logRequestBody = true,
+    bool logResponseBody = true,
+    int? maxBodyLength,
+    List<String> sensitiveKeys = const [],
   }) =>
       TraceCloakDioInterceptor(
         overrideMode: mode,
@@ -145,6 +162,11 @@ class TraceCloak {
         logRequests: logRequests,
         logResponses: logResponses,
         logErrors: logErrors,
+        logRequestHeaders: logRequestHeaders,
+        logRequestBody: logRequestBody,
+        logResponseBody: logResponseBody,
+        maxBodyLength: maxBodyLength,
+        sensitiveKeys: sensitiveKeys,
       );
 
   /// Non-custodial audit callback hook (Safe for Sentry, Crashlytics, Telemetry).
@@ -171,9 +193,10 @@ class TraceCloak {
     MaskMode? initialMode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
+    List<String>? sensitiveKeys,
     void Function(RedactionEvent event)? onRedactionEvent,
   }) {
-    _applyConfig(initialMode, exactSecrets, onRedactionEvent);
+    _applyConfig(initialMode, exactSecrets, sensitiveKeys, onRedactionEvent);
     if (enableInRelease) _releaseOutputEnabled = true;
     if (kDebugMode || enableInRelease) _installed = true;
   }
@@ -185,10 +208,12 @@ class TraceCloak {
   static void _applyConfig(
     MaskMode? newMode,
     List<String>? exactSecrets,
+    List<String>? sensitiveKeys,
     void Function(RedactionEvent event)? onRedactionEvent,
   ) {
     if (newMode != null) mode = newMode;
     if (exactSecrets != null) addExactMatches(exactSecrets);
+    if (sensitiveKeys != null) addSensitiveKeys(sensitiveKeys);
     if (onRedactionEvent != null) onRedacted = onRedactionEvent;
   }
 
@@ -215,10 +240,11 @@ class TraceCloak {
     MaskMode? mode,
     bool enableInRelease = false,
     List<String>? exactSecrets,
+    List<String>? sensitiveKeys,
     void Function(RedactionEvent event)? onRedactionEvent,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
-    _applyConfig(mode, exactSecrets, onRedactionEvent);
+    _applyConfig(mode, exactSecrets, sensitiveKeys, onRedactionEvent);
 
     // In release builds, bypass the Zone entirely by default.
     if (!kDebugMode && !enableInRelease) {
@@ -286,6 +312,24 @@ class TraceCloak {
     };
   }
 
+  /// Wraps any `print`-style callback (e.g. third-party loggers or Dio's
+  /// `LogInterceptor(logPrint: TraceCloak.wrapPrint())`) so every message is
+  /// redacted before printing.
+  static void Function(Object? object) wrapPrint([
+    void Function(Object? object)? original,
+  ]) {
+    return (Object? object) {
+      final sanitized = redact(object?.toString() ?? 'null');
+      if (original != null) {
+        original(sanitized);
+      } else if (customPrinter != null) {
+        customPrinter!(sanitized);
+      } else {
+        Zone.root.print(sanitized);
+      }
+    };
+  }
+
   /// Sanitizes a [StackTrace], ensuring credentials, tokens in query parameters,
   /// or dumped variable strings in stack traces do not leak to the console.
   static StackTrace sanitizeStackTrace(StackTrace stackTrace,
@@ -333,9 +377,49 @@ class TraceCloak {
     _customRules.clear();
   }
 
+  /// Register custom sensitive map/JSON/header key names whose values should
+  /// always be masked in [sanitize], [sanitizeHeaders], structured logs, and
+  /// [TraceCloakDioInterceptor] (case-insensitive, e.g. `['xyz_key', 'mpin']`).
+  static void addSensitiveKeys(Iterable<String> keys) {
+    var added = false;
+    for (final k in keys) {
+      final normalized = k.trim().toLowerCase();
+      if (normalized.isNotEmpty && _customSensitiveKeys.add(normalized)) {
+        added = true;
+      }
+    }
+    if (added) _customKeysRegex = null;
+  }
+
+  /// Clears registered custom sensitive key names.
+  static void clearSensitiveKeys() {
+    _customSensitiveKeys.clear();
+    _customKeysRegex = null;
+  }
+
+  static Set<String>? _normalizeKeys(Iterable<String>? keys) {
+    if (keys == null) return null;
+    final set = <String>{};
+    for (final k in keys) {
+      final normalized = k.trim().toLowerCase();
+      if (normalized.isNotEmpty) set.add(normalized);
+    }
+    return set.isEmpty ? null : set;
+  }
+
+  /// Returns `true` if [key] matches a built-in sensitive key pattern or any
+  /// custom key registered via [addSensitiveKeys] or passed in [extraKeys].
+  static bool isSensitiveKey(String key, [Iterable<String>? extraKeys]) =>
+      _isSensitiveKey(key, _normalizeKeys(extraKeys));
+
   // True if a map key or header name (e.g. `password`, `Authorization`,
-  // `X-Api-Key`, `Cookie`) marks its value as a secret.
-  static bool _isSensitiveKey(String key) => _sensitiveKey.hasMatch(key);
+  // `X-Api-Key`, `Cookie`, `otp`, `pass`, or a custom key) marks its value as a secret.
+  static bool _isSensitiveKey(String key, [Set<String>? extraKeys]) {
+    final normalized = key.trim().toLowerCase();
+    if (_customSensitiveKeys.contains(normalized)) return true;
+    if (extraKeys != null && extraKeys.contains(normalized)) return true;
+    return _sensitiveKey.hasMatch(key) || _sensitiveCamelCaseKey.hasMatch(key);
+  }
 
   /// Convenience single-value masking helper.
   static String mask(String secret, {MaskMode? overrideMode}) {
@@ -349,21 +433,36 @@ class TraceCloak {
 
   /// Recursively sanitizes any value for logging.
   ///
-  /// - Strings are passed through [redact].
-  /// - Map values under sensitive keys (see `_sensitiveKey`) are masked in full.
+  /// - Strings are passed through [redact] (and JSON object/array strings are
+  ///   decoded, key-sanitized, and re-encoded so custom/sensitive keys inside
+  ///   raw JSON payloads are also masked).
+  /// - Map values under sensitive keys (built-in or added via [addSensitiveKeys] /
+  ///   [sensitiveKeys]) are masked in full.
   /// - Maps and iterables are walked (iterables become lists, cycles and nesting
   ///   deeper than 32 levels are replaced by a placeholder).
   /// - `null`, numbers, booleans and enums are returned unchanged.
   /// - Any other object is converted with `toString()` and redacted, so custom
   ///   classes cannot leak secrets through their `toString()`.
-  static dynamic sanitize(dynamic value, {MaskMode? overrideMode}) {
+  static dynamic sanitize(
+    dynamic value, {
+    MaskMode? overrideMode,
+    Iterable<String>? sensitiveKeys,
+  }) {
     final activeMode = overrideMode ?? mode;
     if (activeMode == MaskMode.off) return value;
-    return _sanitize(value, activeMode, Set<Object>.identity(), 0, false);
+    final extraKeys = _normalizeKeys(sensitiveKeys);
+    return _sanitize(
+        value, activeMode, Set<Object>.identity(), 0, false, extraKeys);
   }
 
   static dynamic _sanitize(
-      dynamic value, MaskMode m, Set<Object> seen, int depth, bool forceMask) {
+    dynamic value,
+    MaskMode m,
+    Set<Object> seen,
+    int depth,
+    bool forceMask,
+    Set<String>? extraKeys,
+  ) {
     if (value == null) return null;
     if (value is Map || value is Iterable) {
       if (depth >= _maxDepth) return '[max depth]';
@@ -374,15 +473,15 @@ class TraceCloak {
           for (final entry in value.entries) {
             final key = entry.key;
             final sensitive =
-                forceMask || (key is String && _isSensitiveKey(key));
-            out[_sanitizeKey(key, m)] =
-                _sanitize(entry.value, m, seen, depth + 1, sensitive);
+                forceMask || (key is String && _isSensitiveKey(key, extraKeys));
+            out[_sanitizeKey(key, m)] = _sanitize(
+                entry.value, m, seen, depth + 1, sensitive, extraKeys);
           }
           return out;
         }
         return [
           for (final item in value as Iterable)
-            _sanitize(item, m, seen, depth + 1, forceMask)
+            _sanitize(item, m, seen, depth + 1, forceMask, extraKeys)
         ];
       } finally {
         seen.remove(value);
@@ -391,7 +490,22 @@ class TraceCloak {
     // SecureKey is already masked by its own toString().
     if (value is SecureKey) return value.toString();
     if (forceMask) return _maskWhole(value.toString(), m);
-    if (value is String) return redact(value, overrideMode: m);
+    if (value is String) {
+      final trimmed = value.trimLeft();
+      if (depth < _maxDepth &&
+          (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        try {
+          final decoded = jsonDecode(value);
+          if (decoded is Map || decoded is List) {
+            return jsonEncode(
+                _sanitize(decoded, m, seen, depth + 1, false, extraKeys));
+          }
+        } on FormatException {
+          // Not valid JSON; fall through to standard text redaction.
+        }
+      }
+      return redact(value, overrideMode: m);
+    }
     if (value is num || value is bool || value is Enum) return value;
     return redact(value.toString(), overrideMode: m);
   }
@@ -433,10 +547,13 @@ class TraceCloak {
       }
     }
 
-    // 2. Pattern rules (canonical + custom)
+    // 2. Pattern rules (canonical + custom + custom sensitiveKeys)
     _collectRuleSpans(defaultDartRules, message, spans);
     if (_customRules.isNotEmpty) {
       _collectRuleSpans(_customRules, message, spans);
+    }
+    if (_customSensitiveKeys.isNotEmpty) {
+      _collectCustomKeySpans(message, spans);
     }
 
     // 3. Fallback: Shannon entropy detection for unknown tokens, on a copy where
@@ -488,6 +605,28 @@ class TraceCloak {
     }
     out.write(message.substring(cursor));
     return out.toString();
+  }
+
+  static void _collectCustomKeySpans(String message, List<_Span> spans) {
+    var regex = _customKeysRegex;
+    if (regex == null) {
+      final escaped = _customSensitiveKeys.map(RegExp.escape).join('|');
+      regex = RegExp(
+        '(?:["\']?(?:$escaped)["\']?\\s*[:=]\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s"\',;&}\\])]+)))',
+        caseSensitive: false,
+      );
+      _customKeysRegex = regex;
+    }
+    for (final match in regex.allMatches(message)) {
+      final whole = match.group(0)!;
+      final value = match.group(1) ?? match.group(2) ?? match.group(3);
+      if (value == null || value.isEmpty) continue;
+      final offset = whole.lastIndexOf(value);
+      if (offset < 0) continue;
+      final start = match.start + offset;
+      spans.add(
+          _Span(start, start + value.length, 'Custom Sensitive Key', 'key', 0));
+    }
   }
 
   static void _collectRuleSpans(
@@ -550,19 +689,22 @@ class TraceCloak {
   // --------------------------------------------------------------------------
 
   /// Sanitizes an HTTP headers map. Headers whose names mark them as credentials
-  /// (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `*-Token`, ...) are
-  /// always masked in full (`Bearer ****`); other headers are scanned with [redact].
+  /// (`Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key`, `*-Token`, ...) or
+  /// match [sensitiveKeys] / [addSensitiveKeys] are always masked in full
+  /// (`Bearer ****`); other headers are scanned with [redact].
   static Map<String, dynamic> sanitizeHeaders(
     Map<String, dynamic> headers, {
     MaskMode? overrideMode,
+    Iterable<String>? sensitiveKeys,
   }) {
     final activeMode = overrideMode ?? mode;
     if (activeMode == MaskMode.off) return Map.of(headers);
     final seen = Set<Object>.identity();
+    final extraKeys = _normalizeKeys(sensitiveKeys);
     return {
       for (final entry in headers.entries)
-        entry.key: _sanitize(
-            entry.value, activeMode, seen, 0, _isSensitiveKey(entry.key)),
+        entry.key: _sanitize(entry.value, activeMode, seen, 0,
+            _isSensitiveKey(entry.key, extraKeys), extraKeys),
     };
   }
 
